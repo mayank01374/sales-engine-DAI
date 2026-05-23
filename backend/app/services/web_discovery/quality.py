@@ -323,16 +323,25 @@ def score_signal_payload(data: dict) -> dict:
     pain, pain_reasons = score_discovery_pain(text, parties, law_firms)
     dcover_fit, fit_reasons = score_dcover_fit(pain, text)
     confidence = safe_score(data.get("confidence_score"), 72 if len(parties) >= 2 else 58)
-    actionability = 52
+    actionability = 20
+    if parties:
+        actionability += 15
     if len(parties) >= 2:
-        actionability += 18
+        actionability += 10
+    if data.get("court_or_regulator") or data.get("regulators") or data.get("courts"):
+        actionability += 10
     if data.get("source_url"):
+        actionability += 10
+    if strong_hits := [term for term in STRONG_TRIGGER_TERMS if term in text.lower()]:
+        actionability += min(20, len(strong_hits) * 5)
+    if data.get("discovery_pain_summary"):
         actionability += 10
     if data.get("sales_angle_one_liner") or data.get("summary"):
         actionability += 10
     if data.get("why_now"):
         actionability += 8
-    actionability = safe_score(data.get("sales_actionability_score"), actionability)
+    provided_actionability = data.get("sales_actionability_score")
+    actionability = safe_score(provided_actionability, actionability) if provided_actionability not in {None, "", 0, 0.0, "0"} else safe_score(actionability)
     final = (
         confidence * 0.20
         + source_quality * 0.20
@@ -384,13 +393,14 @@ def get_thresholds(db: Session | None = None) -> dict:
     cfg = db.query(models.ScoringConfig).filter_by(is_active=True).first() if db else None
     min_discovery_pain = cfg.min_discovery_pain_score if cfg else settings.min_discovery_pain_score
     min_dcover_fit = cfg.min_dcover_fit_score if cfg else settings.min_dcover_fit_score
+    min_sales_actionability = cfg.min_sales_actionability_score if cfg else settings.min_sales_actionability_score
     return {
         "final_trigger_score": (cfg.final_trigger_threshold if cfg else settings.daily_trigger_threshold),
         "confidence_score": (cfg.min_confidence_score if cfg else settings.min_confidence_score),
         "source_quality_score": (cfg.min_source_quality_score if cfg else settings.min_source_quality_score),
         "discovery_pain_score": min(safe_score(min_discovery_pain, 55), 55),
         "dcover_fit_score": min(safe_score(min_dcover_fit, 55), 55),
-        "sales_actionability_score": (cfg.min_sales_actionability_score if cfg else settings.min_sales_actionability_score),
+        "sales_actionability_score": min(safe_score(min_sales_actionability, 20), 20),
         "max_daily_triggers": (cfg.max_daily_triggers if cfg else 50),
         "max_signal_age_days": (cfg.max_signal_age_days if cfg else settings.max_signal_age_days),
         "allow_unknown_signal_date": (cfg.allow_unknown_signal_date if cfg else False),
@@ -404,8 +414,6 @@ def quality_gate(signal, db: Session | None = None) -> tuple[bool, str]:
     freshness_status = getattr(signal, "freshness_status", "unknown") or "unknown"
     if freshness_status == "stale":
         failures.append("stale_signal")
-    if freshness_status == "unknown" and not thresholds.get("allow_unknown_signal_date"):
-        failures.append("unknown_date")
     if getattr(signal, "source_tier", "") == "blocked":
         failures.append("blocked_source")
     for field, threshold in thresholds.items():

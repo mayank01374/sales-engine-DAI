@@ -5,6 +5,7 @@ import {
   CheckCircle,
   Copy,
   Database,
+  Download,
   ExternalLink,
   Eye,
   FileSearch,
@@ -96,7 +97,7 @@ function DailyTriggers() {
     matter_type: "",
     trigger_category: "",
     min_source_quality: "",
-    min_score: "70",
+    min_score: "",
     status: "",
     date_from: "",
     date_to: "",
@@ -134,10 +135,16 @@ function DailyTriggers() {
             help with discovery, review, privilege, redaction, or production.
           </p>
         </div>
-        <button onClick={load}>
-          <RefreshCw size={16} />
-          Refresh
-        </button>
+        <div className="actions">
+          <button onClick={() => api.exportDailyTriggers(filters)}>
+            <Download size={16} />
+            Export Excel
+          </button>
+          <button onClick={load}>
+            <RefreshCw size={16} />
+            Refresh
+          </button>
+        </div>
       </header>
       <div className="warning">
         Only signals passing the DecoverAI quality gate appear here. Verify

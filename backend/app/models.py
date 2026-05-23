@@ -140,7 +140,7 @@ class ScoringConfig(Base):
     min_source_quality_score = Column(Float, default=50)
     min_discovery_pain_score = Column(Float, default=55)
     min_dcover_fit_score = Column(Float, default=55)
-    min_sales_actionability_score = Column(Float, default=60)
+    min_sales_actionability_score = Column(Float, default=20)
     max_daily_triggers = Column(Integer, default=50)
     default_geography = Column(String(120), default="US")
     default_industry = Column(String(160), default="technology")

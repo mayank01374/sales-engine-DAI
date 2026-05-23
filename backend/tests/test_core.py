@@ -165,6 +165,19 @@ def test_decoverai_scoring_formula_and_sales_angle():
     assert "privilege" in scored["email_body"].lower()
     assert "redaction" in scored["email_body"].lower()
 
+def test_zero_actionability_gets_deterministic_fallback():
+    scored = score_signal_payload({
+        "title": "Acme data breach lawsuit filed",
+        "source_url": "https://www.reuters.com/legal/acme-data-breach",
+        "publisher": "Reuters",
+        "parties": ["Acme"],
+        "summary": "A data breach lawsuit was filed against Acme.",
+        "discovery_pain_summary": "Likely discovery burden across customer notices, internal emails, security records, and incident response documents.",
+        "why_now": "The lawsuit was recently filed.",
+        "sales_actionability_score": 0,
+    })
+    assert scored["sales_actionability_score"] >= 20
+
 def test_quality_gate_passes_only_high_quality_signal():
     db = session()
     signal = models.DiscoveredSignal(title="A v. B lawsuit filed", source_url="https://www.sec.gov/x", parties=["A", "B"], is_litigation_trigger=True, confidence_score=80, source_quality_score=90, discovery_pain_score=82, dcover_fit_score=82, sales_actionability_score=80, final_trigger_score=82, discovery_pain_summary="Likely privilege review and production burden.", why_decoverai="DecoverAI can help classify documents, identify responsive materials, accelerate privilege review, support redaction, create privilege logs, and prepare defensible production with audit trails.", published_at=datetime.now(timezone.utc) - timedelta(days=30), signal_date=datetime.now(timezone.utc) - timedelta(days=30), signal_age_days=30, freshness_status="fresh")
@@ -314,12 +327,9 @@ def test_30_day_old_signal_can_pass_gate():
     signal = models.DiscoveredSignal(title="A v. B lawsuit filed", source_url="https://www.reuters.com/legal/a-b", parties=["A", "B"], is_litigation_trigger=True, confidence_score=90, source_quality_score=90, discovery_pain_score=90, dcover_fit_score=90, sales_actionability_score=90, final_trigger_score=90, freshness_status="fresh", signal_age_days=30, discovery_pain_summary="Likely privilege review and production burden.", why_decoverai="DecoverAI can help classify documents, identify responsive materials, accelerate privilege review, support redaction, create privilege logs, and prepare defensible production with audit trails.")
     assert quality_gate(signal, db)[0]
 
-def test_unknown_date_signal_fails_gate_unless_override_setting_enabled():
+def test_unknown_date_signal_can_pass_gate():
     db = session()
-    cfg = active_config(db)
     signal = models.DiscoveredSignal(title="A v. B lawsuit filed", source_url="https://www.reuters.com/legal/a-b", parties=["A", "B"], is_litigation_trigger=True, confidence_score=90, source_quality_score=90, discovery_pain_score=90, dcover_fit_score=90, sales_actionability_score=90, final_trigger_score=90, freshness_status="unknown", discovery_pain_summary="Likely privilege review and production burden.", why_decoverai="DecoverAI can help classify documents, identify responsive materials, accelerate privilege review, support redaction, create privilege logs, and prepare defensible production with audit trails.")
-    assert not quality_gate(signal, db)[0]
-    cfg.allow_unknown_signal_date = True
     assert quality_gate(signal, db)[0]
 
 def test_sales_action_plan_is_generated_for_passed_signal():
@@ -364,7 +374,43 @@ def test_daily_triggers_max_50_and_respects_max_per_source_domain():
     finally:
         app.dependency_overrides.clear()
 
-def test_discovery_run_failed_tab_hides_stale_and_unknown_date_signals():
+def test_daily_triggers_show_passed_unknown_date_signals():
+    db = session()
+    db.add_all([
+        models.DiscoveredSignal(title="Unknown date pass", source_url="https://www.reuters.com/legal/unknown", source_domain="reuters.com", parties=["Acme"], status="new", gate_passed=True, freshness_status="unknown", final_trigger_score=65, confidence_score=80, source_quality_score=80, discovery_pain_score=80, dcover_fit_score=80, sales_actionability_score=80),
+        models.DiscoveredSignal(title="Stale pass", source_url="https://www.reuters.com/legal/stale", source_domain="reuters.com", parties=["Acme"], status="new", gate_passed=True, freshness_status="stale", final_trigger_score=99, confidence_score=90, source_quality_score=90, discovery_pain_score=90, dcover_fit_score=90, sales_actionability_score=90),
+    ])
+    db.commit()
+    def override_db():
+        yield db
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        data = client.get("/api/daily-triggers").json()
+        titles = {item["title"] for item in data["items"]}
+        assert "Unknown date pass" in titles
+        assert "Stale pass" not in titles
+    finally:
+        app.dependency_overrides.clear()
+
+def test_daily_triggers_export_csv_downloads_passed_rows():
+    db = session()
+    db.add(models.DiscoveredSignal(title="Exportable trigger", source_url="https://www.reuters.com/legal/export", source_domain="reuters.com", parties=["Acme"], status="new", gate_passed=True, freshness_status="fresh", final_trigger_score=82, confidence_score=80, source_quality_score=80, discovery_pain_score=80, dcover_fit_score=80, sales_actionability_score=80))
+    db.commit()
+    def override_db():
+        yield db
+    app.dependency_overrides[get_db] = override_db
+    try:
+        client = TestClient(app)
+        res = client.get("/api/daily-triggers/export.csv")
+        assert res.status_code == 200
+        assert "text/csv" in res.headers["content-type"]
+        assert "daily-triggers.csv" in res.headers["content-disposition"]
+        assert "Exportable trigger" in res.text
+    finally:
+        app.dependency_overrides.clear()
+
+def test_discovery_run_failed_tab_shows_stale_and_unknown_date_signals():
     db = session()
     run = models.WebDiscoveryRun(query="q", trigger_type="all", status="completed")
     db.add(run); db.flush()
@@ -380,7 +426,7 @@ def test_discovery_run_failed_tab_hides_stale_and_unknown_date_signals():
     try:
         client = TestClient(app)
         data = client.get(f"/api/web-discovery/runs/{run.id}/signals?tab=failed_gate").json()
-        assert [item["title"] for item in data] == ["Fresh fail"]
+        assert {item["title"] for item in data} == {"Fresh fail", "Old fail", "Unknown fail"}
     finally:
         app.dependency_overrides.clear()
 

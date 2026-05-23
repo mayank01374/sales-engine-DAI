@@ -1,4 +1,6 @@
 from __future__ import annotations
+import csv
+import io
 import logging
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Query, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,6 +30,9 @@ app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(Exception, generic_exception_handler)
 
 def ensure_lightweight_columns():
+    def ident(name: str) -> str:
+        return '"' + name.replace('"', '""') + '"' if name.lower() != name else name
+
     column_defs = {
         "opportunities": {
             "matter_type": "VARCHAR(160)", "trigger_category": "VARCHAR(160)", "party_roles": "JSON",
@@ -40,6 +45,9 @@ def ensure_lightweight_columns():
             "extraction_warnings": "JSON", "missing_fields": "JSON",
             "is_litigation_trigger": "BOOLEAN", "trigger_relevance_reason": "TEXT",
             "gate_status": "VARCHAR(40)", "gate_failure_reasons": "JSON", "duplicate_confidence": "FLOAT",
+            "discovery_burden_score": "FLOAT", "urgency_score": "FLOAT", "decoverAI_fit_score": "FLOAT",
+            "company_size_score": "FLOAT", "law_firm_signal_score": "FLOAT", "freshness_score": "FLOAT",
+            "case_type_score": "FLOAT", "scoring_breakdown": "JSON", "enrichment_status": "VARCHAR(50)",
             "source_tier": "VARCHAR(80)", "source_reason": "TEXT",
         },
         "source_evidence": {
@@ -85,7 +93,7 @@ def ensure_lightweight_columns():
             existing = {col["name"] for col in inspector.get_columns(table)}
             for name, ddl in defs.items():
                 if name not in existing:
-                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {ident(name)} {ddl}"))
         if "discovered_signals" in inspector.get_table_names():
             conn.execute(text("UPDATE discovered_signals SET freshness_status = 'unknown' WHERE freshness_status IS NULL"))
             conn.execute(text("UPDATE discovered_signals SET freshness_reason = 'unknown_date' WHERE freshness_reason IS NULL"))
@@ -95,6 +103,43 @@ def ensure_lightweight_columns():
             conn.execute(text("UPDATE discovered_signals SET sales_review_status = '' WHERE sales_review_status IS NULL"))
             conn.execute(text("UPDATE discovered_signals SET sales_review_reason = '' WHERE sales_review_reason IS NULL"))
             conn.execute(text("UPDATE discovered_signals SET sales_review_notes = '' WHERE sales_review_notes IS NULL"))
+        if "opportunities" in inspector.get_table_names():
+            conn.execute(text("UPDATE opportunities SET matter_type = '' WHERE matter_type IS NULL"))
+            conn.execute(text("UPDATE opportunities SET trigger_category = '' WHERE trigger_category IS NULL"))
+            conn.execute(text("UPDATE opportunities SET party_roles = '{}' WHERE party_roles IS NULL"))
+            conn.execute(text("UPDATE opportunities SET law_firms = '[]' WHERE law_firms IS NULL"))
+            conn.execute(text("UPDATE opportunities SET recommended_personas = '[]' WHERE recommended_personas IS NULL"))
+            conn.execute(text("UPDATE opportunities SET extraction_warnings = '[]' WHERE extraction_warnings IS NULL"))
+            conn.execute(text("UPDATE opportunities SET missing_fields = '[]' WHERE missing_fields IS NULL"))
+            conn.execute(text("UPDATE opportunities SET gate_failure_reasons = '[]' WHERE gate_failure_reasons IS NULL"))
+            conn.execute(text("UPDATE opportunities SET scoring_breakdown = '{}' WHERE scoring_breakdown IS NULL"))
+            conn.execute(text("UPDATE opportunities SET court_or_regulator = '' WHERE court_or_regulator IS NULL"))
+            conn.execute(text("UPDATE opportunities SET jurisdiction = '' WHERE jurisdiction IS NULL"))
+            conn.execute(text("UPDATE opportunities SET factual_basis = '' WHERE factual_basis IS NULL"))
+            conn.execute(text("UPDATE opportunities SET discovery_pain_summary = '' WHERE discovery_pain_summary IS NULL"))
+            conn.execute(text("UPDATE opportunities SET why_now = '' WHERE why_now IS NULL"))
+            conn.execute(text("UPDATE opportunities SET why_decoverai = '' WHERE why_decoverai IS NULL"))
+            conn.execute(text("UPDATE opportunities SET sales_angle_one_liner = '' WHERE sales_angle_one_liner IS NULL"))
+            conn.execute(text("UPDATE opportunities SET email_subject = '' WHERE email_subject IS NULL"))
+            conn.execute(text("UPDATE opportunities SET email_body = '' WHERE email_body IS NULL"))
+            conn.execute(text("UPDATE opportunities SET linkedin_message = '' WHERE linkedin_message IS NULL"))
+            conn.execute(text("UPDATE opportunities SET call_opener = '' WHERE call_opener IS NULL"))
+            conn.execute(text("UPDATE opportunities SET gate_status = 'failed' WHERE gate_status IS NULL"))
+            conn.execute(text("UPDATE opportunities SET enrichment_status = 'pending' WHERE enrichment_status IS NULL"))
+            conn.execute(text("UPDATE opportunities SET confidence_score = 0 WHERE confidence_score IS NULL"))
+            conn.execute(text("UPDATE opportunities SET source_quality_score = 0 WHERE source_quality_score IS NULL"))
+            conn.execute(text("UPDATE opportunities SET discovery_pain_score = 0 WHERE discovery_pain_score IS NULL"))
+            conn.execute(text("UPDATE opportunities SET dcover_fit_score = 0 WHERE dcover_fit_score IS NULL"))
+            conn.execute(text("UPDATE opportunities SET sales_actionability_score = 0 WHERE sales_actionability_score IS NULL"))
+            conn.execute(text("UPDATE opportunities SET final_trigger_score = 0 WHERE final_trigger_score IS NULL"))
+            conn.execute(text("UPDATE opportunities SET discovery_burden_score = 0 WHERE discovery_burden_score IS NULL"))
+            conn.execute(text("UPDATE opportunities SET urgency_score = 0 WHERE urgency_score IS NULL"))
+            conn.execute(text("UPDATE opportunities SET \"decoverAI_fit_score\" = 0 WHERE \"decoverAI_fit_score\" IS NULL"))
+            conn.execute(text("UPDATE opportunities SET company_size_score = 0 WHERE company_size_score IS NULL"))
+            conn.execute(text("UPDATE opportunities SET law_firm_signal_score = 0 WHERE law_firm_signal_score IS NULL"))
+            conn.execute(text("UPDATE opportunities SET freshness_score = 0 WHERE freshness_score IS NULL"))
+            conn.execute(text("UPDATE opportunities SET case_type_score = 0 WHERE case_type_score IS NULL"))
+            conn.execute(text("UPDATE opportunities SET duplicate_confidence = 0 WHERE duplicate_confidence IS NULL"))
         if "source_evidence" in inspector.get_table_names():
             conn.execute(text("UPDATE source_evidence SET source_tier = 'low_quality' WHERE source_tier IS NULL"))
             conn.execute(text("UPDATE source_evidence SET source_reason = '' WHERE source_reason IS NULL"))
@@ -104,7 +149,7 @@ def ensure_lightweight_columns():
             conn.execute(text("UPDATE scoring_config SET min_source_quality_score = 50 WHERE min_source_quality_score IS NULL OR min_source_quality_score >= 65"))
             conn.execute(text("UPDATE scoring_config SET min_discovery_pain_score = 60 WHERE min_discovery_pain_score IS NULL OR min_discovery_pain_score >= 70"))
             conn.execute(text("UPDATE scoring_config SET min_dcover_fit_score = 60 WHERE min_dcover_fit_score IS NULL OR min_dcover_fit_score >= 70"))
-            conn.execute(text("UPDATE scoring_config SET min_sales_actionability_score = 60 WHERE min_sales_actionability_score IS NULL OR min_sales_actionability_score >= 75"))
+            conn.execute(text("UPDATE scoring_config SET min_sales_actionability_score = 20 WHERE min_sales_actionability_score IS NULL OR min_sales_actionability_score >= 75"))
             conn.execute(text("UPDATE scoring_config SET max_daily_triggers = 50 WHERE max_daily_triggers IS NULL OR max_daily_triggers <= 20"))
             conn.execute(text("UPDATE scoring_config SET default_max_results = 40 WHERE default_max_results IS NULL OR default_max_results <= 20"))
 
@@ -274,7 +319,7 @@ def daily_triggers(db: Session = Depends(get_db), limit: int|None=None, matter_t
     page_size = max(1, min(page_size or limit or cfg.max_daily_triggers or 50, cfg.max_daily_triggers or 50, 50))
     q = db.query(models.DiscoveredSignal).options(joinedload(models.DiscoveredSignal.scrape_attempts)).filter(
         models.DiscoveredSignal.gate_passed == True,
-        models.DiscoveredSignal.freshness_status == "fresh",
+        models.DiscoveredSignal.freshness_status != "stale",
         models.DiscoveredSignal.status != "rejected",
         models.DiscoveredSignal.duplicate_of_opportunity_id.is_(None),
     )
@@ -313,6 +358,53 @@ def daily_triggers(db: Session = Depends(get_db), limit: int|None=None, matter_t
     total = len(candidates)
     items = items[(page-1)*page_size:page*page_size]
     return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+@app.get("/api/daily-triggers/export.csv")
+def export_daily_triggers(db: Session = Depends(get_db), matter_type: str|None=None, trigger_category: str|None=None, min_source_quality: float|None=None, min_score: float|None=None, status: str|None=None, date_from: str|None=None, date_to: str|None=None):
+    data = daily_triggers(
+        db=db,
+        matter_type=matter_type,
+        trigger_category=trigger_category,
+        min_source_quality=min_source_quality,
+        min_score=min_score,
+        status=status,
+        date_from=date_from,
+        date_to=date_to,
+        page=1,
+        page_size=50,
+    )
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow([
+        "id", "final_score", "gate", "status", "matter", "parties", "matter_type",
+        "trigger", "source", "freshness", "source_quality", "discovery_pain",
+        "fit", "persona", "sales_angle", "why_now", "discovery_pain_summary",
+    ])
+    for s in data["items"]:
+        writer.writerow([
+            s.id,
+            round(s.final_trigger_score or 0, 1),
+            s.gate_status or ("passed" if s.gate_passed else "failed"),
+            s.status,
+            s.title,
+            "; ".join(s.parties or []),
+            s.matter_type or s.case_type,
+            s.trigger_category or s.trigger_type,
+            s.source_url,
+            s.freshness_status,
+            round(s.source_quality_score or 0, 1),
+            round(s.discovery_pain_score or 0, 1),
+            round(s.dcover_fit_score or 0, 1),
+            "; ".join(s.recommended_personas or []),
+            s.sales_angle_one_liner,
+            s.why_now,
+            s.discovery_pain_summary,
+        ])
+    return Response(
+        content=out.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=daily-triggers.csv"},
+    )
 
 @app.get("/api/quality-summary", response_model=schemas.QualitySummaryOut)
 def quality_summary(db: Session = Depends(get_db)):
@@ -501,7 +593,6 @@ def list_discovered_signals(run_id: int, tab: str = "all", page: int = 1, page_s
         db.query(models.DiscoveredSignal)
         .options(joinedload(models.DiscoveredSignal.scrape_attempts))
         .filter_by(discovery_run_id=run_id)
-        .filter(models.DiscoveredSignal.freshness_status == "fresh")
     )
     if tab == "needs_review":
         q = q.filter(models.DiscoveredSignal.status.in_(["new", "reviewed"]))

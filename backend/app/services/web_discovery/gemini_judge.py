@@ -86,7 +86,6 @@ def judge_signal_with_gemini(signal) -> dict | None:
             "source_quality_score": "0-100",
             "discovery_pain_score": "0-100",
             "dcover_fit_score": "0-100",
-            "sales_actionability_score": "0-100",
             "final_trigger_score": "0-100",
             "summary": "string",
             "factual_basis": "string",
@@ -104,7 +103,7 @@ def judge_signal_with_gemini(signal) -> dict | None:
         },
     }
     result = _call_gemini(prompt)
-    for key in ["confidence_score", "source_quality_score", "discovery_pain_score", "dcover_fit_score", "sales_actionability_score", "final_trigger_score"]:
+    for key in ["confidence_score", "source_quality_score", "discovery_pain_score", "dcover_fit_score", "final_trigger_score"]:
         result[key] = safe_score(result.get(key), 0)
     for key in ["gate_failure_reasons", "recommended_personas", "extraction_warnings", "missing_fields"]:
         result[key] = result.get(key) if isinstance(result.get(key), list) else []
@@ -143,6 +142,5 @@ def apply_gemini_judgment(signal) -> bool:
     signal.discovery_burden_score = result["discovery_pain_score"]
     signal.dcover_fit_score = result["dcover_fit_score"]
     signal.decover_fit_score = result["dcover_fit_score"]
-    signal.sales_actionability_score = result["sales_actionability_score"]
     signal.final_trigger_score = result["final_trigger_score"]
     return True

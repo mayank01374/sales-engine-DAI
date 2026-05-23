@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     min_source_quality_score: float = Field(default=50, alias="MIN_SOURCE_QUALITY_SCORE")
     min_discovery_pain_score: float = Field(default=55, alias="MIN_DISCOVERY_PAIN_SCORE")
     min_dcover_fit_score: float = Field(default=55, alias="MIN_DCOVER_FIT_SCORE")
-    min_sales_actionability_score: float = Field(default=60, alias="MIN_SALES_ACTIONABILITY_SCORE")
+    min_sales_actionability_score: float = Field(default=20, alias="MIN_SALES_ACTIONABILITY_SCORE")
     max_signal_age_days: int = Field(default=90, alias="MAX_SIGNAL_AGE_DAYS")
     courtlistener_api_key: str | None = Field(default=None, alias="COURTLISTENER_API_KEY")
     max_per_source_domain: int = Field(default=4, alias="MAX_PER_SOURCE_DOMAIN")

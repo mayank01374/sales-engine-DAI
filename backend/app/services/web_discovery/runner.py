@@ -123,90 +123,107 @@ def run_discovery(
                 status="new",
             )
             db.add(signal); db.flush()
-            scrape_text = ""
-            if not dry_run and not result.url.startswith("https://example.com/"):
-                for scraper in _scrapers():
-                    started = time.monotonic()
-                    robots_allowed = scraper.provider_name != "raw_http" or check_robots_allowed(result.url, settings.scraping_user_agent)
-                    if not robots_allowed and scraper.provider_name == "raw_http":
-                        _attempt(db, signal.id, scraper.provider_name, "skipped", started, robots_allowed=False, error_message="robots.txt disallowed or unavailable")
-                        continue
-                    try:
-                        limiter.wait(result.url)
-                        scraped = scraper.scrape(result.url)
-                        scrape_text = scraped.markdown_or_text or ""
-                        if scraped.title and len(scraped.title) > len(signal.title):
-                            signal.title = scraped.title[:500]
-                        signal.scraped_text = scrape_text[:30000]
-                        _attempt(db, signal.id, scraped.provider_name, "success", started, scraped.status_code, robots_allowed=True)
-                        break
-                    except Exception as exc:
-                        _attempt(db, signal.id, scraper.provider_name, "failed", started, robots_allowed=robots_allowed, error_message=str(exc))
-            metadata = {
-                "title": signal.title,
-                "snippet": signal.raw_snippet,
-                "url": signal.source_url,
-                "source_domain": signal.source_domain,
-                "publisher": signal.publisher,
-                "published_at": signal.published_at,
-                "trigger_type": trigger_type,
-                "geography": geography,
-            }
-            extraction = extract_signal_from_text(scrape_text or signal.raw_snippet, metadata)
-            signal.title = extraction.get("title") or signal.title
-            signal.trigger_type = extraction.get("trigger_type") or trigger_type
-            signal.case_type = extraction.get("case_type") or extraction.get("matter_type") or ""
-            signal.matter_type = extraction.get("matter_type") or signal.case_type
-            signal.trigger_category = extraction.get("trigger_category") or signal.trigger_type
-            signal.parties = extraction.get("parties") or []
-            signal.party_roles = extraction.get("party_roles") or {}
-            signal.law_firms = extraction.get("law_firms") or []
-            signal.courts = extraction.get("courts") or []
-            signal.regulators = extraction.get("regulators") or []
-            signal.court_or_regulator = extraction.get("court_or_regulator") or ", ".join((signal.courts or signal.regulators or [])[:1])
-            signal.jurisdiction = extraction.get("jurisdiction") or geography
-            signal.summary = extraction.get("summary") or signal.raw_snippet
-            signal.factual_basis = extraction.get("factual_basis") or signal.raw_snippet
-            signal.discovery_pain_summary = extraction.get("discovery_pain_summary") or ""
-            signal.why_now = extraction.get("why_now") or ""
-            signal.why_decoverai = extraction.get("why_decoverai") or extraction.get("why_relevant_to_dcover") or ""
-            signal.why_relevant_to_decoverAI = signal.why_decoverai
-            signal.recommended_personas = extraction.get("recommended_personas") or []
-            signal.sales_angle_one_liner = extraction.get("sales_angle_one_liner") or ""
-            signal.email_subject = extraction.get("email_subject") or ""
-            signal.email_body = extraction.get("email_body") or ""
-            signal.linkedin_message = extraction.get("linkedin_message") or ""
-            signal.call_opener = extraction.get("call_opener") or ""
-            signal.discovery_burden_score = extraction.get("discovery_burden_score") or extraction.get("discovery_pain_score") or 0
-            signal.urgency_score = extraction.get("urgency_score") or 0
-            signal.decover_fit_score = extraction.get("decover_fit_score") or extraction.get("dcover_fit_score") or 0
-            signal.confidence_score = extraction.get("confidence_score") or 0
-            signal.source_quality_score = extraction.get("source_quality_score") or 0
-            signal.discovery_pain_score = extraction.get("discovery_pain_score") or signal.discovery_burden_score
-            signal.dcover_fit_score = extraction.get("dcover_fit_score") or signal.decover_fit_score
-            signal.sales_actionability_score = extraction.get("sales_actionability_score") or 0
-            signal.final_trigger_score = extraction.get("final_trigger_score") or 0
-            signal.extraction_warnings = extraction.get("extraction_warnings") or []
-            signal.missing_fields = extraction.get("missing_fields") or []
-            signal.is_litigation_trigger = bool(extraction.get("is_litigation_trigger"))
-            signal.trigger_relevance_reason = extraction.get("trigger_relevance_reason") or ""
-            if extraction.get("rejection_reason") and not signal.is_litigation_trigger:
-                signal.rejection_reason = extraction.get("rejection_reason")
-            dedupe_signal(db, signal)
-            if signal.duplicate_of_opportunity_id:
-                signal.duplicate_reason = f"Matches existing opportunity #{signal.duplicate_of_opportunity_id}."
-            apply_quality_to_signal(signal, db)
-            if signal.freshness_status == "stale":
-                db.delete(signal)
+            try:
+                scrape_text = ""
+                if not dry_run and not result.url.startswith("https://example.com/"):
+                    for scraper in _scrapers():
+                        started = time.monotonic()
+                        robots_allowed = scraper.provider_name != "raw_http" or check_robots_allowed(result.url, settings.scraping_user_agent)
+                        if not robots_allowed and scraper.provider_name == "raw_http":
+                            _attempt(db, signal.id, scraper.provider_name, "skipped", started, robots_allowed=False, error_message="robots.txt disallowed or unavailable")
+                            continue
+                        try:
+                            limiter.wait(result.url)
+                            scraped = scraper.scrape(result.url)
+                            scrape_text = scraped.markdown_or_text or ""
+                            if scraped.title and len(scraped.title) > len(signal.title):
+                                signal.title = scraped.title[:500]
+                            signal.scraped_text = scrape_text[:30000]
+                            _attempt(db, signal.id, scraped.provider_name, "success", started, scraped.status_code, robots_allowed=True)
+                            break
+                        except Exception as exc:
+                            _attempt(db, signal.id, scraper.provider_name, "failed", started, robots_allowed=robots_allowed, error_message=str(exc))
+                metadata = {
+                    "title": signal.title,
+                    "snippet": signal.raw_snippet,
+                    "url": signal.source_url,
+                    "source_domain": signal.source_domain,
+                    "publisher": signal.publisher,
+                    "published_at": signal.published_at,
+                    "trigger_type": trigger_type,
+                    "geography": geography,
+                }
+                extraction = extract_signal_from_text(scrape_text or signal.raw_snippet, metadata)
+                signal.title = extraction.get("title") or signal.title
+                signal.trigger_type = extraction.get("trigger_type") or trigger_type
+                signal.case_type = extraction.get("case_type") or extraction.get("matter_type") or ""
+                signal.matter_type = extraction.get("matter_type") or signal.case_type
+                signal.trigger_category = extraction.get("trigger_category") or signal.trigger_type
+                signal.parties = extraction.get("parties") or []
+                signal.party_roles = extraction.get("party_roles") or {}
+                signal.law_firms = extraction.get("law_firms") or []
+                signal.courts = extraction.get("courts") or []
+                signal.regulators = extraction.get("regulators") or []
+                signal.court_or_regulator = extraction.get("court_or_regulator") or ", ".join((signal.courts or signal.regulators or [])[:1])
+                signal.jurisdiction = extraction.get("jurisdiction") or geography
+                signal.summary = extraction.get("summary") or signal.raw_snippet
+                signal.factual_basis = extraction.get("factual_basis") or signal.raw_snippet
+                signal.discovery_pain_summary = extraction.get("discovery_pain_summary") or ""
+                signal.why_now = extraction.get("why_now") or ""
+                signal.why_decoverai = extraction.get("why_decoverai") or extraction.get("why_relevant_to_dcover") or ""
+                signal.why_relevant_to_decoverAI = signal.why_decoverai
+                signal.recommended_personas = extraction.get("recommended_personas") or []
+                signal.sales_angle_one_liner = extraction.get("sales_angle_one_liner") or ""
+                signal.email_subject = extraction.get("email_subject") or ""
+                signal.email_body = extraction.get("email_body") or ""
+                signal.linkedin_message = extraction.get("linkedin_message") or ""
+                signal.call_opener = extraction.get("call_opener") or ""
+                signal.discovery_burden_score = extraction.get("discovery_burden_score") or extraction.get("discovery_pain_score") or 0
+                signal.urgency_score = extraction.get("urgency_score") or 0
+                signal.decover_fit_score = extraction.get("decover_fit_score") or extraction.get("dcover_fit_score") or 0
+                signal.confidence_score = extraction.get("confidence_score") or 0
+                signal.source_quality_score = extraction.get("source_quality_score") or 0
+                signal.discovery_pain_score = extraction.get("discovery_pain_score") or signal.discovery_burden_score
+                signal.dcover_fit_score = extraction.get("dcover_fit_score") or signal.decover_fit_score
+                signal.sales_actionability_score = extraction.get("sales_actionability_score") or 0
+                signal.final_trigger_score = extraction.get("final_trigger_score") or 0
+                signal.extraction_warnings = extraction.get("extraction_warnings") or []
+                signal.missing_fields = extraction.get("missing_fields") or []
+                signal.is_litigation_trigger = bool(extraction.get("is_litigation_trigger"))
+                signal.trigger_relevance_reason = extraction.get("trigger_relevance_reason") or ""
+                if extraction.get("rejection_reason") and not signal.is_litigation_trigger:
+                    signal.rejection_reason = extraction.get("rejection_reason")
+                dedupe_signal(db, signal)
+                if signal.duplicate_of_opportunity_id:
+                    signal.duplicate_reason = f"Matches existing opportunity #{signal.duplicate_of_opportunity_id}."
+                apply_quality_to_signal(signal, db)
+                if signal.freshness_status == "stale":
+                    signal.status = "stale"
+                    signal.gate_status = "failed"
+                    signal.gate_passed = False
+                    signal.gate_failure_reasons = list(dict.fromkeys((signal.gate_failure_reasons or []) + ["stale_signal"]))
+                    signal.gate_reason = "; ".join(signal.gate_failure_reasons)
+                    kept += 1
+                    continue
+                try:
+                    apply_gemini_judgment(signal)
+                except Exception as exc:
+                    warnings = list(signal.extraction_warnings or [])
+                    warnings.append(f"Gemini judgment unavailable: {exc}")
+                    signal.extraction_warnings = warnings
+                kept += 1
+            except Exception as inner_exc:
+                signal.status = "processing_failed"
+                signal.gate_status = "failed"
+                signal.gate_passed = False
+                signal.gate_failure_reasons = list(dict.fromkeys((signal.gate_failure_reasons or []) + ["processing_failed"]))
+                signal.gate_reason = f"Processing crashed: {inner_exc}"
+                warnings = list(signal.extraction_warnings or [])
+                warnings.append(f"Processing crashed: {inner_exc}")
+                signal.extraction_warnings = warnings
+                kept += 1
                 db.flush()
                 continue
-            try:
-                apply_gemini_judgment(signal)
-            except Exception as exc:
-                warnings = list(signal.extraction_warnings or [])
-                warnings.append(f"Gemini judgment unavailable: {exc}")
-                signal.extraction_warnings = warnings
-            kept += 1
         run.total_results = kept
         run.status = "completed"
         db.commit(); db.refresh(run)

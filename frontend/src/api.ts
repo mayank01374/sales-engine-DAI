@@ -8,6 +8,7 @@ async function req<T>(path:string, opts:RequestInit={}): Promise<T> {
 export const api = {
   opportunities: (params:Record<string, any>={}) => req<{items:Opportunity[], total:number, page:number, page_size:number}>('/api/opportunities?' + new URLSearchParams(Object.entries(params).filter(([_,v])=>v!==undefined && v!=='' && v!==null).map(([k,v])=>[k,String(v)]))),
   dailyTriggers: (params:Record<string, any>={}) => req<{items:DiscoveredSignal[], total:number, page:number, page_size:number}>('/api/daily-triggers?' + new URLSearchParams(Object.entries(params).filter(([_,v])=>v!==undefined && v!=='' && v!==null).map(([k,v])=>[k,String(v)]))),
+  exportDailyTriggers: (params:Record<string, any>={})=>{ window.location.href = BASE + '/api/daily-triggers/export.csv?' + new URLSearchParams(Object.entries(params).filter(([_,v])=>v!==undefined && v!=='' && v!==null).map(([k,v])=>[k,String(v)])); },
   qualitySummary: ()=>req<QualitySummary>('/api/quality-summary'),
   settings: ()=>req<AppSettings>('/api/settings'),
   updateSettings: (payload:AppSettings)=>req<AppSettings>('/api/settings', {method:'PUT', body:JSON.stringify(payload)}),
