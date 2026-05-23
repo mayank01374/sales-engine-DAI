@@ -22,6 +22,7 @@ from app.services.web_discovery.runner import run_discovery
 from app.services.web_discovery.runner import _search_provider
 from app.services.web_search.composite_provider import CompositeSearchProvider
 from app.services.web_search.courtlistener_provider import CourtListenerSearchProvider
+from app.services.web_search.tavily_provider import TavilySearchProvider
 from app.services.web_search.base import WebSearchResult
 from app.services.scraping import robots
 
@@ -64,6 +65,23 @@ def test_discovery_search_provider_includes_courtlistener(monkeypatch):
     assert isinstance(provider, CompositeSearchProvider)
     assert any(isinstance(p, CourtListenerSearchProvider) for p in provider.providers)
 
+def test_tavily_provider_passes_time_range_days(monkeypatch):
+    captured = {}
+    class Response:
+        def raise_for_status(self): pass
+        def json(self): return {"results": []}
+    class Client:
+        def __init__(self, timeout): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def post(self, url, json):
+            captured["payload"] = json
+            return Response()
+    monkeypatch.setattr("app.services.web_search.tavily_provider.httpx.Client", Client)
+    TavilySearchProvider(api_key="test").search("query", 5, time_range="month")
+    assert captured["payload"]["topic"] == "news"
+    assert captured["payload"]["days"] == 30
+
 def test_gemini_judgment_can_override_gate(monkeypatch):
     db = session()
     from app.services.web_discovery import runner
@@ -81,6 +99,7 @@ def test_gemini_judgment_can_override_gate(monkeypatch):
 
 def test_extractor_fallback_fact_grounded(monkeypatch):
     monkeypatch.setattr("app.services.web_discovery.extractor.settings.openai_api_key", None)
+    monkeypatch.setattr("app.services.web_discovery.extractor.settings.groq_api_key", None)
     result = extract_signal_from_text(
         "Acme sued Globex for trade secret misappropriation involving source code and internal documents.",
         {"title": "Acme v. Globex trade secret lawsuit", "snippet": "Complaint filed this week."},
@@ -88,6 +107,47 @@ def test_extractor_fallback_fact_grounded(monkeypatch):
     assert result["trigger_type"] == "trade_secret"
     assert result["discovery_burden_score"] >= 90
     assert "Acme" in result["parties"]
+
+def test_extractor_keeps_openai_published_date(monkeypatch):
+    monkeypatch.setattr("app.services.web_discovery.extractor.settings.openai_api_key", "test")
+    monkeypatch.setattr("app.services.web_discovery.extractor.settings.groq_api_key", None)
+    class Response:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"choices": [{"message": {"content": '{"title":"Acme lawsuit filed","parties":["Acme"],"published_at":"2026-05-01T00:00:00+00:00","summary":"A lawsuit was filed against Acme.","discovery_pain_summary":"Likely document production and privilege review.","why_decoverai":"DecoverAI can help classify documents, accelerate privilege review, support redaction, and prepare defensible production.","is_litigation_trigger":true}'}}]}
+    class Client:
+        def __init__(self, timeout): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def post(self, *args, **kwargs): return Response()
+    monkeypatch.setattr("app.services.web_discovery.extractor.httpx.Client", Client)
+    result = extract_signal_from_text("Published on May 1, 2026. A lawsuit was filed against Acme.", {"title": "Acme lawsuit", "url": "https://www.reuters.com/legal/acme"})
+    assert str(result["published_at"]).startswith("2026-05-01")
+    assert result["freshness_status"] == "fresh"
+
+def test_extractor_uses_groq_when_configured(monkeypatch):
+    captured = {}
+    monkeypatch.setattr("app.services.web_discovery.extractor.settings.groq_api_key", "groq-test")
+    monkeypatch.setattr("app.services.web_discovery.extractor.settings.groq_model", "llama-test")
+    monkeypatch.setattr("app.services.web_discovery.extractor.settings.openai_api_key", None)
+    class Response:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"choices": [{"message": {"content": '{"title":"Acme lawsuit filed","parties":["Acme"],"summary":"A lawsuit was filed against Acme.","discovery_pain_summary":"Likely document production and privilege review.","why_decoverai":"DecoverAI can help classify documents, accelerate privilege review, support redaction, and prepare defensible production.","is_litigation_trigger":true}'}}]}
+    class Client:
+        def __init__(self, timeout): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def post(self, url, headers, json):
+            captured["url"] = url
+            captured["auth"] = headers["Authorization"]
+            captured["model"] = json["model"]
+            return Response()
+    monkeypatch.setattr("app.services.web_discovery.extractor.httpx.Client", Client)
+    extract_signal_from_text("A lawsuit was filed against Acme.", {"title": "Acme lawsuit", "url": "https://www.reuters.com/legal/acme"})
+    assert captured["url"] == "https://api.groq.com/openai/v1/chat/completions"
+    assert captured["auth"] == "Bearer groq-test"
+    assert captured["model"] == "llama-test"
 
 def test_dedupe_exact_url():
     db = session()
@@ -493,3 +553,30 @@ def test_discovery_run_does_not_fail_on_missing_scores(monkeypatch):
     assert run.status == "completed"
     signal = db.query(models.DiscoveredSignal).first()
     assert signal.final_trigger_score is not None
+
+def test_discovery_run_persists_extracted_published_date(monkeypatch):
+    db = session()
+    class Provider:
+        def search(self, *args, **kwargs):
+            return [WebSearchResult(title="Acme lawsuit filed", url="https://www.reuters.com/legal/acme", domain="reuters.com", snippet="Lawsuit filed against Acme.")]
+    monkeypatch.setattr("app.services.web_discovery.runner._search_provider", lambda: Provider())
+    monkeypatch.setattr("app.services.web_discovery.runner._scrapers", lambda: [])
+    def fake_extract(*args, **kwargs):
+        return score_signal_payload({
+            "title": "Acme lawsuit filed",
+            "source_url": "https://www.reuters.com/legal/acme",
+            "publisher": "Reuters",
+            "published_at": "2026-05-01T00:00:00+00:00",
+            "parties": ["Acme"],
+            "summary": "Lawsuit filed against Acme.",
+            "discovery_pain_summary": "Likely document production and privilege review.",
+            "why_decoverai": "DecoverAI can help classify documents, accelerate privilege review, support redaction, and prepare defensible production.",
+            "is_litigation_trigger": True,
+        })
+    monkeypatch.setattr("app.services.web_discovery.runner.extract_signal_from_text", fake_extract)
+    run = run_discovery(db, "data_breach", max_results=1, dry_run=True)
+    signal = db.query(models.DiscoveredSignal).first()
+    assert run.status == "completed"
+    assert signal.published_at is not None
+    assert signal.signal_date is not None
+    assert signal.freshness_status == "fresh"

@@ -57,6 +57,7 @@ Set these in `backend/.env` as needed:
 TAVILY_API_KEY=
 FIRECRAWL_API_KEY=
 OPENAI_API_KEY=
+GROQ_API_KEY=
 GEMINI_API_KEY=
 COURTLISTENER_API_KEY=
 ```
@@ -64,6 +65,7 @@ COURTLISTENER_API_KEY=
 - `TAVILY_API_KEY`: live web search for discovery runs.
 - `FIRECRAWL_API_KEY`: richer page extraction when normal HTTP scraping is limited.
 - `OPENAI_API_KEY`: structured extraction from scraped/source text.
+- `GROQ_API_KEY`: alternative structured extraction provider when no OpenAI key is available.
 - `GEMINI_API_KEY`: final quality judgment for whether a signal is worth pursuing.
 - `COURTLISTENER_API_KEY`: optional authenticated CourtListener access; public access can still work without it.
 

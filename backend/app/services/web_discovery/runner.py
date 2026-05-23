@@ -25,6 +25,18 @@ from .source_packs import enabled_source_packs
 def _domain(url: str) -> str:
     return urlparse(url).netloc.replace("www.", "")
 
+def _date_or_none(value):
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return None
+
 def _is_recent_search_result(result, max_age_days: int) -> bool:
     if result.published_at is None:
         return True
@@ -154,6 +166,9 @@ def run_discovery(
                     "geography": geography,
                 }
                 extraction = extract_signal_from_text(scrape_text or signal.raw_snippet, metadata)
+                extracted_published_at = _date_or_none(extraction.get("published_at") or extraction.get("signal_date"))
+                if extracted_published_at:
+                    signal.published_at = extracted_published_at
                 signal.title = extraction.get("title") or signal.title
                 signal.trigger_type = extraction.get("trigger_type") or trigger_type
                 signal.case_type = extraction.get("case_type") or extraction.get("matter_type") or ""

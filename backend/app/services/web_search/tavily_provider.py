@@ -25,6 +25,8 @@ class TavilySearchProvider(WebSearchProvider):
     def search(self, query: str, max_results: int, time_range: str = "week", include_domains=None, exclude_domains=None):
         if not self.api_key:
             return []
+        days_map = {"day": 1, "week": 7, "month": 30, "year": 365}
+        search_days = days_map.get((time_range or "week").lower(), 7)
         payload = {
             "api_key": self.api_key,
             "query": query,
@@ -33,6 +35,7 @@ class TavilySearchProvider(WebSearchProvider):
             "include_answer": False,
             "include_raw_content": False,
             "topic": "news",
+            "days": search_days,
         }
         if include_domains:
             payload["include_domains"] = include_domains

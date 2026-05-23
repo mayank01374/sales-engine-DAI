@@ -20,11 +20,21 @@ class FirecrawlScraperProvider(ScraperProvider):
             payload = response.json()
         data = payload.get("data") or payload
         metadata = data.get("metadata") or {}
+        published_at = (
+            metadata.get("publishedTime")
+            or metadata.get("datePublished")
+            or metadata.get("article:published_time")
+            or metadata.get("og:published_time")
+            or metadata.get("publishDate")
+        )
+        markdown = data.get("markdown") or data.get("content") or ""
+        if published_at:
+            markdown = f"Published at: {published_at}\n\n{markdown}"
         return ScrapeResult(
             url=url,
             final_url=metadata.get("sourceURL") or url,
             title=metadata.get("title") or "",
-            markdown_or_text=data.get("markdown") or data.get("content") or "",
+            markdown_or_text=markdown,
             status_code=response.status_code,
             provider_name=self.provider_name,
         )

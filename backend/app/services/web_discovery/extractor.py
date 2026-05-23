@@ -1,5 +1,6 @@
 from __future__ import annotations
 import json, re
+from datetime import datetime
 import httpx
 from ...config import settings
 from .. import infer_case_type_from_text, parse_case_parties
@@ -43,6 +44,33 @@ def _json(text: str):
         cleaned = re.sub(r"```$", "", cleaned).strip()
     match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
     return json.loads(match.group(0) if match else cleaned)
+
+def _valid_date_or_fallback(value, fallback):
+    if not value:
+        return fallback
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return fallback
+    return fallback
+
+def _chat_completion_config():
+    if settings.groq_api_key:
+        return {
+            "url": "https://api.groq.com/openai/v1/chat/completions",
+            "api_key": settings.groq_api_key,
+            "model": settings.groq_model,
+        }
+    if settings.openai_api_key:
+        return {
+            "url": "https://api.openai.com/v1/chat/completions",
+            "api_key": settings.openai_api_key,
+            "model": settings.openai_model,
+        }
+    return None
 
 def _fallback(text: str, metadata: dict):
     title = metadata.get("title") or "Untitled legal signal"
@@ -107,7 +135,8 @@ def _fallback(text: str, metadata: dict):
 
 def extract_signal_from_text(text: str, metadata: dict) -> dict:
     fallback = _fallback(text, metadata)
-    if not settings.openai_api_key:
+    llm = _chat_completion_config()
+    if not llm:
         return fallback
     schema = {
         "title": "string", "matter_type": "string", "trigger_category": "string", "parties": [], "party_roles": {},
@@ -119,26 +148,28 @@ def extract_signal_from_text(text: str, metadata: dict) -> dict:
         "confidence_score": "0-100", "source_quality_score": "0-100", "discovery_pain_score": "0-100",
         "dcover_fit_score": "0-100", "sales_actionability_score": "0-100", "final_trigger_score": "0-100",
         "is_litigation_trigger": "boolean", "trigger_relevance_reason": "string",
+        "published_at": "string ISO-8601 date/datetime if explicitly found in the source text",
         "gate_status": "passed|failed", "gate_failure_reasons": [],
         "extraction_warnings": [], "missing_fields": [],
     }
     prompt = {
-        "instruction": "Extract only litigation or legal-market facts supported by the source text. Do not invent parties, law firms, courts, regulators, deadlines, or document volumes. Sales angles must be grounded in source evidence and DecoverAI capabilities: classification, responsiveness review, privilege analysis, confidentiality analysis, redaction, Bates numbering, privilege logs, production setup, early case assessment, chronology/evidence analysis, audit trails, fast production, and lower review cost. Use 'likely discovery burden' only for inference.",
+        "instruction": "Extract only litigation or legal-market facts supported by the source text. Do not invent parties, law firms, courts, regulators, deadlines, or document volumes. Sales angles must be grounded in source evidence and DecoverAI capabilities: classification, responsiveness review, privilege analysis, confidentiality analysis, redaction, Bates numbering, privilege logs, production setup, early case assessment, chronology/evidence analysis, audit trails, fast production, and lower review cost. Use 'likely discovery burden' only for inference. Extract the publication date if explicitly mentioned in the text.",
         "metadata": metadata,
         "schema": schema,
         "text": text[:20000],
     }
     try:
         body = {
-            "model": settings.openai_model,
+            "model": llm["model"],
             "messages": [{"role": "user", "content": json.dumps(prompt)}],
             "temperature": 0,
             "response_format": {"type": "json_object"},
         }
         with httpx.Client(timeout=30) as client:
-            response = client.post("https://api.openai.com/v1/chat/completions", headers={"Authorization": f"Bearer {settings.openai_api_key}"}, json=body)
+            response = client.post(llm["url"], headers={"Authorization": f"Bearer {llm['api_key']}"}, json=body)
             response.raise_for_status()
             result = _json(response.json()["choices"][0]["message"]["content"])
+        result["published_at"] = _valid_date_or_fallback(result.get("published_at"), fallback.get("published_at"))
         for key in ["parties", "law_firms", "courts", "regulators", "recommended_personas", "extraction_warnings", "missing_fields"]:
             result[key] = result.get(key) if isinstance(result.get(key), list) else []
         for key in ["confidence_score", "source_quality_score", "discovery_pain_score", "dcover_fit_score", "sales_actionability_score", "final_trigger_score"]:

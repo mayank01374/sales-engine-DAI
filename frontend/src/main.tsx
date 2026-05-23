@@ -474,9 +474,8 @@ function DiscoveryRuns() {
                   <td>
                     <Pill value={s.freshness_status} />
                     <small>
-                      {s.signal_age_days != null
-                        ? `${s.signal_age_days}d`
-                        : s.freshness_reason}
+                      {date(s.signal_date || s.published_at)}
+                      {s.signal_age_days != null ? ` · ${s.signal_age_days}d` : ""}
                     </small>
                   </td>
                   <td>{label(s.trigger_category || s.trigger_type)}</td>
@@ -880,7 +879,8 @@ function SignalTable({
               <td>
                 <Pill value={s.freshness_status} />
                 <small>
-                  {s.signal_age_days != null ? `${s.signal_age_days}d` : "-"}
+                  {date(s.signal_date || s.published_at)}
+                  {s.signal_age_days != null ? ` · ${s.signal_age_days}d` : ""}
                 </small>
               </td>
               <td>{Math.round(s.discovery_pain_score)}</td>
