@@ -1,8 +1,8 @@
 from __future__ import annotations
-from datetime import datetime
 from urllib.parse import urlparse
 import re
 import httpx
+from dateutil import parser as date_parser
 from ...config import settings
 from .base import WebSearchProvider, WebSearchResult
 
@@ -26,8 +26,8 @@ def _parse_date(value: str | None):
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
+        return date_parser.parse(value)
+    except Exception:
         return None
 
 class CourtListenerSearchProvider(WebSearchProvider):

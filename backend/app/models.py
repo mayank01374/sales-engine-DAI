@@ -1,9 +1,47 @@
 from __future__ import annotations
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Float, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, Float, ForeignKey, Index, Table
+from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import JSON
 from sqlalchemy.sql import func
 from .db import Base
+
+opportunity_law_firms = Table(
+    "opportunity_law_firms",
+    Base.metadata,
+    Column("opportunity_id", ForeignKey("opportunities.id", ondelete="CASCADE"), primary_key=True),
+    Column("law_firm_id", ForeignKey("law_firms.id", ondelete="CASCADE"), primary_key=True),
+)
+
+opportunity_personas = Table(
+    "opportunity_personas",
+    Base.metadata,
+    Column("opportunity_id", ForeignKey("opportunities.id", ondelete="CASCADE"), primary_key=True),
+    Column("persona_id", ForeignKey("personas.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
+class LawFirm(Base):
+    __tablename__ = "law_firms"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(300), nullable=False, index=True)
+    opportunities = relationship(
+        "Opportunity",
+        secondary=opportunity_law_firms,
+        back_populates="law_firm_entities",
+    )
+
+
+class Persona(Base):
+    __tablename__ = "personas"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(200), nullable=False, index=True)
+    opportunities = relationship(
+        "Opportunity",
+        secondary=opportunity_personas,
+        back_populates="persona_entities",
+    )
+
 
 class Opportunity(Base):
     __tablename__ = "opportunities"
@@ -17,7 +55,6 @@ class Opportunity(Base):
     status = Column(String(50), default="New", index=True)
     parties = Column(JSON, default=list)
     party_roles = Column(JSON, default=dict)
-    law_firms = Column(JSON, default=list)
     court_or_regulator = Column(String(300), default="")
     jurisdiction = Column(String(160), default="")
     summary = Column(Text, default="")
@@ -25,7 +62,6 @@ class Opportunity(Base):
     discovery_pain_summary = Column(Text, default="")
     why_now = Column(Text, default="")
     why_decoverai = Column(Text, default="")
-    recommended_personas = Column(JSON, default=list)
     sales_angle_one_liner = Column(Text, default="")
     email_subject = Column(String(300), default="")
     email_body = Column(Text, default="")
@@ -62,6 +98,18 @@ class Opportunity(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), index=True)
 
     evidence = relationship("SourceEvidence", cascade="all,delete", back_populates="opportunity")
+    law_firm_entities = relationship(
+        "LawFirm",
+        secondary=opportunity_law_firms,
+        back_populates="opportunities",
+    )
+    persona_entities = relationship(
+        "Persona",
+        secondary=opportunity_personas,
+        back_populates="opportunities",
+    )
+    law_firms = association_proxy("law_firm_entities", "name", creator=lambda name: LawFirm(name=name))
+    recommended_personas = association_proxy("persona_entities", "name", creator=lambda name: Persona(name=name))
     enriched_accounts = relationship("EnrichedAccount", cascade="all,delete", back_populates="opportunity")
     research_tasks = relationship("ResearchTask", cascade="all,delete", back_populates="opportunity")
     activities = relationship("OpportunityActivity", cascade="all,delete", back_populates="opportunity")

@@ -117,7 +117,8 @@ def score_component_case_type(case_type: str):
 
 def score_opportunity(opp: models.Opportunity, cfg: models.ScoringConfig):
     case_type_score, case_reason = score_component_case_type(opp.case_type)
-    text = " ".join([opp.case_name, opp.case_type, opp.summary] + (opp.parties or []) + (opp.law_firms or [])).lower()
+    law_firms = list(opp.law_firms or [])
+    text = " ".join([opp.case_name, opp.case_type, opp.summary] + (opp.parties or []) + law_firms).lower()
     discovery = 55
     discovery_reasons=[]
     for kw, val in [("antitrust",95),("trade secret",92),("emails",84),("source code",90),("class action",88),("regulatory",84),("data breach",92),("securities",86),("patent",84),("documents",74)]:
@@ -129,11 +130,11 @@ def score_opportunity(opp: models.Opportunity, cfg: models.ScoringConfig):
     elif len(opp.parties or []) >= 2: company=72
     law = 50
     firm_hits=[]
-    for f in opp.law_firms or []:
+    for f in law_firms:
         fl=f.lower()
         if any(b in fl for b in BIGLAW): firm_hits.append(f)
     if firm_hits: law=88
-    elif opp.law_firms: law=68
+    elif law_firms: law=68
     urgency = 85 if opp.trigger_type and any(x in opp.trigger_type.lower() for x in ["new", "filed", "investigation", "regulatory"]) else 65
     freshness = 80
     dfit = round((discovery*0.55 + case_type_score*0.25 + law*0.20), 1)
@@ -186,7 +187,7 @@ def score_opportunity(opp: models.Opportunity, cfg: models.ScoringConfig):
 
 
 def best_persona(opp):
-    if opp.law_firms: return "Litigation Partner / eDiscovery Counsel"
+    if list(opp.law_firms or []): return "Litigation Partner / eDiscovery Counsel"
     if "data breach" in (opp.case_type or '').lower(): return "General Counsel / Head of Privacy Litigation"
     return "Head of Litigation / Legal Operations"
 
@@ -223,7 +224,7 @@ def create_or_update_opportunity(db: Session, data: dict) -> models.Opportunity:
     opp.trigger_category=data.get("trigger_category") or opp.trigger_category or opp.trigger_type
     opp.parties=parties or opp.parties or []
     opp.party_roles=data.get("party_roles") or opp.party_roles or {}
-    opp.law_firms=law_firms or opp.law_firms or []
+    opp.law_firms=law_firms or list(opp.law_firms or [])
     opp.court_or_regulator=data.get("court_or_regulator") or opp.court_or_regulator or ""
     opp.jurisdiction=data.get("jurisdiction") or opp.jurisdiction or ""
     opp.summary=data.get("summary") or opp.summary or f"Potential {opp.case_type} signal involving {', '.join(opp.parties[:3])}."
@@ -231,7 +232,7 @@ def create_or_update_opportunity(db: Session, data: dict) -> models.Opportunity:
     opp.discovery_pain_summary=data.get("discovery_pain_summary") or opp.discovery_pain_summary or ""
     opp.why_now=data.get("why_now") or opp.why_now or ""
     opp.why_decoverai=data.get("why_decoverai") or opp.why_decoverai or ""
-    opp.recommended_personas=data.get("recommended_personas") or opp.recommended_personas or []
+    opp.recommended_personas=data.get("recommended_personas") or list(opp.recommended_personas or [])
     opp.sales_angle_one_liner=data.get("sales_angle_one_liner") or opp.sales_angle_one_liner or ""
     opp.email_subject=data.get("email_subject") or opp.email_subject or ""
     opp.email_body=data.get("email_body") or opp.email_body or ""
@@ -271,7 +272,7 @@ def enrich_opportunity(db: Session, opp: models.Opportunity):
     db.flush()
     entities=[]
     for p in opp.parties or []: entities.append((p, "company"))
-    for f in opp.law_firms or []: entities.append((f, "law_firm"))
+    for f in list(opp.law_firms or []): entities.append((f, "law_firm"))
     for name, typ in entities:
         acc=models.EnrichedAccount(opportunity_id=opp.id, entity_name=name, entity_type=typ, website=guess_website(name), industry=infer_industry(name, opp), company_size_band=infer_size(name, typ), geography="US / Global" if typ=="company" else "US / International", description=f"{name} is involved in {opp.case_name} as a {typ.replace('_',' ')} signal.", likely_data_sources=likely_sources(opp, typ), legal_team_signal=legal_signal(opp, typ), confidence_score=78 if typ=="company" else 72)
         db.add(acc); db.flush()
@@ -360,7 +361,7 @@ def export_csv(db: Session):
     out=io.StringIO(); writer=csv.writer(out)
     writer.writerow(["id","score","status","case_name","trigger_type","case_type","parties","law_firms","discovery_burden_score","urgency_score","decoverAI_fit_score","recommended_persona","pitch_angle","generated_email","source_urls","notes","last_updated"])
     for o in db.query(models.Opportunity).options(joinedload(models.Opportunity.evidence)).order_by(models.Opportunity.score.desc()).all():
-        writer.writerow([o.id,o.score,o.status,o.case_name,o.trigger_type,o.case_type,"; ".join(o.parties or []),"; ".join(o.law_firms or []),o.discovery_burden_score,o.urgency_score,o.decoverAI_fit_score,o.recommended_persona,o.pitch_angle,o.generated_email,"; ".join([e.source_url for e in o.evidence]),o.notes,o.updated_at])
+        writer.writerow([o.id,o.score,o.status,o.case_name,o.trigger_type,o.case_type,"; ".join(o.parties or []),"; ".join(list(o.law_firms or [])),o.discovery_burden_score,o.urgency_score,o.decoverAI_fit_score,o.recommended_persona,o.pitch_angle,o.generated_email,"; ".join([e.source_url for e in o.evidence]),o.notes,o.updated_at])
     return out.getvalue()
 
 def import_csv(db: Session, content: bytes):

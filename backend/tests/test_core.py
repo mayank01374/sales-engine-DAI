@@ -66,6 +66,26 @@ def test_discovery_search_provider_includes_courtlistener(monkeypatch):
     assert isinstance(provider, CompositeSearchProvider)
     assert any(isinstance(p, CourtListenerSearchProvider) for p in provider.providers)
 
+def test_courtlistener_parses_date_only_date_filed(monkeypatch):
+    class Response:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"results": [{
+                "caseName": "Acme v. Globex",
+                "docket_absolute_url": "/docket/123/acme-v-globex/",
+                "dateFiled": "2024-05-24",
+                "snippet": "Complaint filed.",
+            }]}
+    class Client:
+        def __init__(self, timeout, headers): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def get(self, *args, **kwargs): return Response()
+    monkeypatch.setattr("app.services.web_search.courtlistener_provider.httpx.Client", Client)
+    result = CourtListenerSearchProvider().search("acme", 1)[0]
+    assert result.published_at is not None
+    assert result.published_at.date().isoformat() == "2024-05-24"
+
 def test_tavily_provider_passes_time_range_days(monkeypatch):
     captured = {}
     class Response:

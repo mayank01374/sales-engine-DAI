@@ -2,7 +2,14 @@ import type {Opportunity, Account, ResearchTask, Campaign, SavedView, Activity, 
 const BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 async function req<T>(path:string, opts:RequestInit={}): Promise<T> {
   const res = await fetch(BASE + path, {headers:{'Content-Type':'application/json', ...(opts.headers||{})}, ...opts});
-  if(!res.ok){ let msg = res.statusText; try{ const j=await res.json(); msg=j.error?.message || msg; }catch{} throw new Error(msg); }
+  if (!res.ok) {
+    let msg = res.statusText;
+    try {
+      const j = await res.json();
+      msg = j.error?.message || msg;
+    } catch {}
+    throw new Error(msg);
+  }
   return res.json();
 }
 export const api = {

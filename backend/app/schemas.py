@@ -31,16 +31,26 @@ class EvidenceOut(BaseModel):
         return "" if value is None else value
     class Config: from_attributes=True
 
+class LawFirmOut(BaseModel):
+    id: int
+    name: str
+    class Config: from_attributes=True
+
+class PersonaOut(BaseModel):
+    id: int
+    name: str
+    class Config: from_attributes=True
+
 class OpportunityBase(BaseModel):
     case_name: str
     trigger_type: str = "New Lawsuit"
     case_type: str = "Unknown"
     parties: list[str] = []
-    law_firms: list[str] = []
     summary: str = ""
     notes: str = ""
 
 class OpportunityCreate(OpportunityBase):
+    law_firms: list[str] = []
     source_url: str | None = None
     source_title: str | None = None
     snippet: str | None = None
@@ -57,7 +67,8 @@ class OpportunityOut(OpportunityBase):
     discovery_pain_summary: str = ""
     why_now: str = ""
     why_decoverai: str = ""
-    recommended_personas: list[str] = []
+    law_firms: list[LawFirmOut] = Field(default=[], validation_alias="law_firm_entities")
+    recommended_personas: list[PersonaOut] = Field(default=[], validation_alias="persona_entities")
     sales_angle_one_liner: str = ""
     email_subject: str = ""
     email_body: str = ""
