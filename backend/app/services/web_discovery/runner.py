@@ -2,6 +2,7 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 from urllib.parse import urlparse
+from dateutil import parser as date_parser
 from sqlalchemy.orm import Session
 from ... import models
 from ...config import settings
@@ -32,8 +33,8 @@ def _date_or_none(value):
         return value
     if isinstance(value, str):
         try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
+            return date_parser.parse(value)
+        except Exception:
             return None
     return None
 
@@ -148,6 +149,9 @@ def run_discovery(
                             limiter.wait(result.url)
                             scraped = scraper.scrape(result.url)
                             scrape_text = scraped.markdown_or_text or ""
+                            scraped_published_at = _date_or_none(getattr(scraped, "published_at", None))
+                            if scraped_published_at:
+                                signal.published_at = scraped_published_at
                             if scraped.title and len(scraped.title) > len(signal.title):
                                 signal.title = scraped.title[:500]
                             signal.scraped_text = scrape_text[:30000]

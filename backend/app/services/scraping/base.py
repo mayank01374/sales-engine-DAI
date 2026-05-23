@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from datetime import datetime
 
 @dataclass
 class ScrapeResult:
@@ -9,6 +10,7 @@ class ScrapeResult:
     markdown_or_text: str
     status_code: int | None
     provider_name: str
+    published_at: datetime | str | None = None
 
 class ScraperProvider:
     provider_name = "base"

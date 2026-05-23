@@ -24,6 +24,7 @@ from app.services.web_search.composite_provider import CompositeSearchProvider
 from app.services.web_search.courtlistener_provider import CourtListenerSearchProvider
 from app.services.web_search.tavily_provider import TavilySearchProvider
 from app.services.web_search.base import WebSearchResult
+from app.services.scraping.firecrawl_provider import FirecrawlScraperProvider
 from app.services.scraping import robots
 
 def session():
@@ -82,6 +83,22 @@ def test_tavily_provider_passes_time_range_days(monkeypatch):
     assert captured["payload"]["topic"] == "news"
     assert captured["payload"]["days"] == 30
 
+def test_firecrawl_returns_structured_published_at(monkeypatch):
+    class Response:
+        status_code = 200
+        def raise_for_status(self): pass
+        def json(self):
+            return {"data": {"metadata": {"title": "Acme article", "publishedTime": "May 1, 2026"}, "markdown": "Article body"}}
+    class Client:
+        def __init__(self, timeout): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def post(self, *args, **kwargs): return Response()
+    monkeypatch.setattr("app.services.scraping.firecrawl_provider.httpx.Client", Client)
+    result = FirecrawlScraperProvider(api_key="test").scrape("https://www.reuters.com/legal/acme")
+    assert result.published_at == "May 1, 2026"
+    assert result.markdown_or_text.startswith("Published at: May 1, 2026")
+
 def test_gemini_judgment_can_override_gate(monkeypatch):
     db = session()
     from app.services.web_discovery import runner
@@ -122,6 +139,42 @@ def test_extractor_keeps_openai_published_date(monkeypatch):
         def post(self, *args, **kwargs): return Response()
     monkeypatch.setattr("app.services.web_discovery.extractor.httpx.Client", Client)
     result = extract_signal_from_text("Published on May 1, 2026. A lawsuit was filed against Acme.", {"title": "Acme lawsuit", "url": "https://www.reuters.com/legal/acme"})
+    assert str(result["published_at"]).startswith("2026-05-01")
+    assert result["freshness_status"] == "fresh"
+
+def test_extractor_serializes_datetime_metadata(monkeypatch):
+    captured = {}
+    monkeypatch.setattr("app.services.web_discovery.extractor.settings.openai_api_key", "test")
+    monkeypatch.setattr("app.services.web_discovery.extractor.settings.groq_api_key", None)
+    class Response:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"choices": [{"message": {"content": '{"title":"Acme lawsuit filed","parties":["Acme"],"summary":"A lawsuit was filed against Acme.","discovery_pain_summary":"Likely document production and privilege review.","why_decoverai":"DecoverAI can help classify documents, accelerate privilege review, support redaction, and prepare defensible production.","is_litigation_trigger":true}'}}]}
+    class Client:
+        def __init__(self, timeout): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def post(self, url, headers, json):
+            captured["content"] = json["messages"][0]["content"]
+            return Response()
+    monkeypatch.setattr("app.services.web_discovery.extractor.httpx.Client", Client)
+    extract_signal_from_text("A lawsuit was filed against Acme.", {"title": "Acme lawsuit", "url": "https://www.reuters.com/legal/acme", "published_at": datetime(2026, 5, 1, tzinfo=timezone.utc)})
+    assert "2026-05-01T00:00:00+00:00" in captured["content"]
+
+def test_extractor_accepts_human_readable_published_date(monkeypatch):
+    monkeypatch.setattr("app.services.web_discovery.extractor.settings.openai_api_key", "test")
+    monkeypatch.setattr("app.services.web_discovery.extractor.settings.groq_api_key", None)
+    class Response:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"choices": [{"message": {"content": '{"title":"Acme lawsuit filed","parties":["Acme"],"published_at":"May 1, 2026","summary":"A lawsuit was filed against Acme.","discovery_pain_summary":"Likely document production and privilege review.","why_decoverai":"DecoverAI can help classify documents, accelerate privilege review, support redaction, and prepare defensible production.","is_litigation_trigger":true}'}}]}
+    class Client:
+        def __init__(self, timeout): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def post(self, *args, **kwargs): return Response()
+    monkeypatch.setattr("app.services.web_discovery.extractor.httpx.Client", Client)
+    result = extract_signal_from_text("Published May 1, 2026. A lawsuit was filed against Acme.", {"title": "Acme lawsuit", "url": "https://www.reuters.com/legal/acme"})
     assert str(result["published_at"]).startswith("2026-05-01")
     assert result["freshness_status"] == "fresh"
 

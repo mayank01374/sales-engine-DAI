@@ -37,4 +37,5 @@ class FirecrawlScraperProvider(ScraperProvider):
             markdown_or_text=markdown,
             status_code=response.status_code,
             provider_name=self.provider_name,
+            published_at=published_at,
         )

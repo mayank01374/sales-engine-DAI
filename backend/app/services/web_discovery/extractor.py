@@ -2,6 +2,7 @@ from __future__ import annotations
 import json, re
 from datetime import datetime
 import httpx
+from dateutil import parser as date_parser
 from ...config import settings
 from .. import infer_case_type_from_text, parse_case_parties
 from .quality import score_signal_payload, source_quality_for
@@ -52,10 +53,15 @@ def _valid_date_or_fallback(value, fallback):
         return value
     if isinstance(value, str):
         try:
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError:
+            return date_parser.parse(value)
+        except Exception:
             return fallback
     return fallback
+
+def _json_serial(obj):
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Type {type(obj)} not serializable")
 
 def _chat_completion_config():
     if settings.groq_api_key:
@@ -161,7 +167,7 @@ def extract_signal_from_text(text: str, metadata: dict) -> dict:
     try:
         body = {
             "model": llm["model"],
-            "messages": [{"role": "user", "content": json.dumps(prompt)}],
+            "messages": [{"role": "user", "content": json.dumps(prompt, default=_json_serial)}],
             "temperature": 0,
             "response_format": {"type": "json_object"},
         }
