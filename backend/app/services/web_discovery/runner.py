@@ -98,7 +98,7 @@ def run_discovery(
                 if not _is_recent_search_result(result, max_age_days):
                     continue
                 domain = result.domain or _domain(result.url)
-                if domain_counts.get(domain, 0) >= 8:
+                if domain_counts.get(domain, 0) >= 25:
                     continue
                 seen.add(result.url)
                 domain_counts[domain] = domain_counts.get(domain, 0) + 1
@@ -196,7 +196,7 @@ def run_discovery(
             if signal.duplicate_of_opportunity_id:
                 signal.duplicate_reason = f"Matches existing opportunity #{signal.duplicate_of_opportunity_id}."
             apply_quality_to_signal(signal, db)
-            if signal.freshness_status != "fresh":
+            if signal.freshness_status == "stale":
                 db.delete(signal)
                 db.flush()
                 continue

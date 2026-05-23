@@ -382,12 +382,14 @@ def score_signal_payload(data: dict) -> dict:
 
 def get_thresholds(db: Session | None = None) -> dict:
     cfg = db.query(models.ScoringConfig).filter_by(is_active=True).first() if db else None
+    min_discovery_pain = cfg.min_discovery_pain_score if cfg else settings.min_discovery_pain_score
+    min_dcover_fit = cfg.min_dcover_fit_score if cfg else settings.min_dcover_fit_score
     return {
         "final_trigger_score": (cfg.final_trigger_threshold if cfg else settings.daily_trigger_threshold),
         "confidence_score": (cfg.min_confidence_score if cfg else settings.min_confidence_score),
         "source_quality_score": (cfg.min_source_quality_score if cfg else settings.min_source_quality_score),
-        "discovery_pain_score": (cfg.min_discovery_pain_score if cfg else settings.min_discovery_pain_score),
-        "dcover_fit_score": (cfg.min_dcover_fit_score if cfg else settings.min_dcover_fit_score),
+        "discovery_pain_score": min(safe_score(min_discovery_pain, 55), 55),
+        "dcover_fit_score": min(safe_score(min_dcover_fit, 55), 55),
         "sales_actionability_score": (cfg.min_sales_actionability_score if cfg else settings.min_sales_actionability_score),
         "max_daily_triggers": (cfg.max_daily_triggers if cfg else 50),
         "max_signal_age_days": (cfg.max_signal_age_days if cfg else settings.max_signal_age_days),
@@ -412,16 +414,15 @@ def quality_gate(signal, db: Session | None = None) -> tuple[bool, str]:
         if safe_score(getattr(signal, field, 0)) < safe_score(threshold):
             failures.append(f"{field} below {threshold}")
     parties = getattr(signal, "parties", None) or []
-    court_or_regulator = getattr(signal, "court_or_regulator", "") or ""
-    if not (len(parties) >= 2 or (len(parties) >= 1 and court_or_regulator) or (len(parties) >= 1 and getattr(signal, "source_tier", "") == "tier_1_court_docket")):
+    if not parties:
         failures.append("no_clear_party")
     if not getattr(signal, "source_url", ""):
         failures.append("missing_source_evidence")
     pain = (getattr(signal, "discovery_pain_summary", "") or "").strip().lower()
-    if (not pain or pain in {"likely discovery burden", "likely discovery burden inferred from the matter type"}) and safe_score(getattr(signal, "discovery_pain_score", 0)) < 60:
+    if (not pain or pain in {"likely discovery burden", "likely discovery burden inferred from the matter type"}) and safe_score(getattr(signal, "discovery_pain_score", 0)) < 50:
         failures.append("generic_discovery_pain")
     fit = (getattr(signal, "why_decoverai", "") or getattr(signal, "why_relevant_to_decoverAI", "") or "").lower()
-    if (not fit or any(phrase in fit for phrase in GENERIC_FIT_PHRASES) or len(fit) < 80) and safe_score(getattr(signal, "dcover_fit_score", 0)) < 60:
+    if (not fit or any(phrase in fit for phrase in GENERIC_FIT_PHRASES) or len(fit) < 80) and safe_score(getattr(signal, "dcover_fit_score", 0)) < 50:
         failures.append("generic_decoverai_fit")
     if getattr(signal, "status", "") == "rejected":
         failures.append("rejected")

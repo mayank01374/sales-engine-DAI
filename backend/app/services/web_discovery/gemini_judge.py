@@ -53,7 +53,8 @@ def judge_signal_with_gemini(signal) -> dict | None:
         "rules": [
             "Do not invent parties, law firms, courts, regulators, deadlines, or document volume.",
             "Pursue only actionable litigation, investigation, charges, complaint, class action, settlement, subpoena, or production-related matters.",
-            "Reject generic policy statements, guidance, rulemaking, annual reports, commentary, and pages without a named matter or actor.",
+            "Only reject if the article is completely unrelated to any company, litigation, or regulatory action.",
+            "If the incoming signal already has is_litigation_trigger=true, strongly prefer should_pursue=true unless the evidence clearly contradicts it.",
             "Use likely only for inference.",
             "Every sales angle must connect to concrete DecoverAI capabilities.",
         ],
@@ -73,6 +74,7 @@ def judge_signal_with_gemini(signal) -> dict | None:
             "summary": signal.summary,
             "discovery_pain_summary": signal.discovery_pain_summary,
             "why_decoverai": signal.why_decoverai,
+            "is_litigation_trigger": bool(signal.is_litigation_trigger),
         },
         "response_schema": {
             "should_pursue": "boolean",
@@ -108,6 +110,13 @@ def judge_signal_with_gemini(signal) -> dict | None:
         result[key] = result.get(key) if isinstance(result.get(key), list) else []
     result["should_pursue"] = bool(result.get("should_pursue"))
     result["is_litigation_trigger"] = bool(result.get("is_litigation_trigger"))
+    failure_text = " ".join(result.get("gate_failure_reasons") or []).lower()
+    reason_text = str(result.get("trigger_relevance_reason") or "").lower()
+    clearly_unrelated = any(term in f"{failure_text} {reason_text}" for term in ["completely unrelated", "unrelated", "not litigation"])
+    if getattr(signal, "is_litigation_trigger", False) and result["is_litigation_trigger"] and not clearly_unrelated:
+        result["should_pursue"] = True
+        result["gate_status"] = "passed"
+        result["gate_failure_reasons"] = []
     result["gate_status"] = "passed" if result["should_pursue"] and result.get("gate_status") == "passed" else "failed"
     return result
 

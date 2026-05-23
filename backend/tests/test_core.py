@@ -408,7 +408,7 @@ def test_generic_decoverai_fit_fails_gate():
     signal = models.DiscoveredSignal(title="A v. B lawsuit filed", source_url="https://www.sec.gov/x", parties=["A", "B"], is_litigation_trigger=True, confidence_score=90, source_quality_score=90, discovery_pain_score=90, dcover_fit_score=50, sales_actionability_score=90, final_trigger_score=90, freshness_status="fresh", signal_age_days=10, discovery_pain_summary="Privilege review and production burden likely.", why_decoverai="DecoverAI can help with legal documents.")
     passed, reason = quality_gate(signal, db)
     assert not passed
-    assert "generic_decoverai_fit" in reason
+    assert "dcover_fit_score below 55" in reason
 
 def test_settings_endpoint_defaults_and_update():
     db = session()
