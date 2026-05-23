@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import settings
-from .db import Base, SessionLocal, engine
+from .db import SessionLocal
 from .errors import (
     generic_exception_handler,
     http_exception_handler,
@@ -40,10 +40,12 @@ app.include_router(campaigns.router)
 
 @app.on_event("startup")
 def startup():
-    Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
         seed(db)
+    except Exception:
+        logger.exception("Database seeding failed")
+        db.rollback()
     finally:
         db.close()
 

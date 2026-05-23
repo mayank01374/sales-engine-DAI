@@ -3,17 +3,18 @@ from __future__ import annotations
 import csv
 import io
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.orm import Session, joinedload
 
 from .. import models, schemas
-from ..db import SessionLocal, get_db
+from ..db import get_db
 from ..services import active_config
 from ..services.web_discovery.query_builder import build_discovery_queries
 from ..services.web_discovery.quality import apply_quality_to_signal
-from ..services.web_discovery.runner import convert_signal_to_opportunity, run_discovery
+from ..services.web_discovery.runner import convert_signal_to_opportunity
 from ..services.web_discovery.source_packs import enabled_source_packs
+from ..worker import run_web_discovery_task
 
 router = APIRouter()
 
@@ -191,18 +192,9 @@ def export_daily_triggers(
     )
 
 
-def _run_discovery_background(run_id: int, payload: dict):
-    db = SessionLocal()
-    try:
-        run_discovery(db, existing_run_id=run_id, **payload)
-    finally:
-        db.close()
-
-
 @router.post("/api/web-discovery/runs", response_model=schemas.WebDiscoveryRunOut)
 def create_web_discovery_run(
     payload: schemas.WebDiscoveryRunCreate,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     payload.trigger_type = payload.trigger_type or "all"
@@ -225,7 +217,7 @@ def create_web_discovery_run(
     db.commit()
     db.refresh(run)
     background_payload = payload.model_dump()
-    background_tasks.add_task(_run_discovery_background, run.id, background_payload)
+    run_web_discovery_task.delay(run.id, background_payload)
     return run
 
 

@@ -6,7 +6,11 @@ async function req<T>(path:string, opts:RequestInit={}): Promise<T> {
     let msg = res.statusText;
     try {
       const j = await res.json();
-      msg = j.error?.message || msg;
+      if (Array.isArray(j.detail) && j.detail[0]?.msg) {
+        msg = j.detail[0].msg;
+      } else {
+        msg = j.error?.message || msg;
+      }
     } catch {}
     throw new Error(msg);
   }
