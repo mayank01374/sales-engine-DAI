@@ -6,6 +6,7 @@ import httpx
 from urllib.parse import urljoin, urlparse
 from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
+from dateutil import parser as date_parser
 from .. import models
 from ..config import settings
 from .web_discovery.source_packs import default_source_packs
@@ -285,7 +286,7 @@ def create_or_update_opportunity(db: Session, data: dict) -> models.Opportunity:
     if data.get("source_url"):
         existing = db.query(models.SourceEvidence).filter_by(opportunity_id=opp.id, source_url=data["source_url"]).first()
         if not existing:
-            db.add(models.SourceEvidence(opportunity_id=opp.id, source_url=data["source_url"], source_title=data.get("source_title") or opp.case_name, publisher=data.get("publisher") or "Imported", snippet=data.get("snippet") or opp.summary, evidence_type=data.get("evidence_type") or "legal_news", credibility_score=float(data.get("credibility_score") or 70), source_tier=data.get("source_tier") or "low_quality", source_reason=data.get("source_reason") or ""))
+            db.add(models.SourceEvidence(opportunity_id=opp.id, source_url=data["source_url"], source_title=data.get("source_title") or opp.case_name, publisher=data.get("publisher") or "Imported", published_at=data.get("published_at"), snippet=data.get("snippet") or opp.summary, evidence_type=data.get("evidence_type") or "legal_news", credibility_score=float(data.get("credibility_score") or 70), source_tier=data.get("source_tier") or "low_quality", source_reason=data.get("source_reason") or ""))
     log_activity(db, opp.id, "opportunity_created" if created else "opportunity_updated", f"{'Created' if created else 'Updated'} opportunity {opp.case_name}")
     return opp
 
@@ -626,6 +627,30 @@ def scrape_source(source: dict, limit: int):
                 break
     return rows
 
+def _parse_dt_safe(value: str | None):
+    if not value:
+        return None
+    try:
+        dt = date_parser.parse(value)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        return None
+
+def _get_cl_date(row: dict):
+    dates = []
+    for key in ["dateFiled", "date_filed", "dateArgued", "dateCreated", "date_created"]:
+        parsed = _parse_dt_safe(row.get(key))
+        if parsed:
+            dates.append(parsed)
+    for doc in row.get("recap_documents") or []:
+        for key in ["entry_date_filed", "dateFiled", "date_filed", "dateCreated", "date_created"]:
+            parsed = _parse_dt_safe(doc.get(key))
+            if parsed:
+                dates.append(parsed)
+    return max(dates) if dates else None
+
 def courtlistener_url(row: dict):
     docs = row.get("recap_documents") or []
     complaint = next((doc for doc in docs if "complaint" in " ".join([doc.get("description") or "", doc.get("short_description") or ""]).lower() and doc.get("absolute_url")), None)
@@ -661,6 +686,7 @@ def ingest_courtlistener(db: Session, query: str = "antitrust OR trade secret OR
             "source_url": source_url,
             "source_title": raw_case_name[:500],
             "publisher": "CourtListener",
+            "published_at": _get_cl_date(row),
             "snippet": snippet[:2000] if snippet else "Matched CourtListener legal search result.",
             "evidence_type": "court_record",
             "credibility_score": 92,

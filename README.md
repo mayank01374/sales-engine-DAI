@@ -1,4 +1,4 @@
-# DecoverAI Sales Engine
+# Sales Engine
 
 A local sales workspace for finding, reviewing, qualifying, and converting litigation-related public signals into sales opportunities.
 
@@ -65,7 +65,7 @@ Important backend modules:
 
 ## Main Product Areas
 
-- Daily Triggers: high-quality, non-stale, non-rejected signals that pass the DecoverAI quality gate.
+- Daily Triggers: high-quality, non-stale, non-rejected signals that pass the quality gate.
 - Discovery Runs: raw discovery jobs and review tabs for passed, failed, duplicate, rejected, and converted signals.
 - Opportunities: converted matters for sales follow-up.
 - Settings: quality thresholds, source allow/block lists, source packs, discovery defaults, date policy, and Gemini status.
@@ -77,7 +77,7 @@ Signals are scored on:
 - confidence
 - source quality
 - discovery pain
-- DecoverAI fit
+- product fit
 - sales actionability
 - final trigger score
 

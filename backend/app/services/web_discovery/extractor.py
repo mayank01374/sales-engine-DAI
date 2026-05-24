@@ -1,6 +1,6 @@
 from __future__ import annotations
 import json, re
-from datetime import datetime
+from datetime import datetime, timezone
 import httpx
 from dateutil import parser as date_parser
 from ...config import settings
@@ -47,16 +47,25 @@ def _json(text: str):
     return json.loads(match.group(0) if match else cleaned)
 
 def _valid_date_or_fallback(value, fallback):
+    def aware(dt):
+        if isinstance(dt, datetime) and dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt
     if not value:
-        return fallback
+        return aware(fallback)
+    dt = None
     if isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
+        dt = value
+    elif isinstance(value, str):
         try:
-            return date_parser.parse(value)
+            dt = date_parser.parse(value)
         except Exception:
-            return fallback
-    return fallback
+            pass
+    if dt:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    return aware(fallback)
 
 def _json_serial(obj):
     if isinstance(obj, datetime):

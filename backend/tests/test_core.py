@@ -109,6 +109,31 @@ def test_courtlistener_parses_nested_recap_entry_date(monkeypatch):
     result = CourtListenerSearchProvider().search("acme", 1)[0]
     assert result.published_at is not None
     assert result.published_at.date().isoformat() == "2026-05-01"
+    assert result.published_at.tzinfo is not None
+
+def test_courtlistener_handles_mixed_timezone_dates(monkeypatch):
+    class Response:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"results": [{
+                "caseName": "Acme v. Globex",
+                "docket_absolute_url": "/docket/123/acme-v-globex/",
+                "dateFiled": "2026-04-30T12:00:00-04:00",
+                "snippet": "Complaint filed.",
+                "recap_documents": [
+                    {"absolute_url": "/recap/gov.uscourts/new.pdf", "entry_date_filed": "2026-05-01"},
+                ],
+            }]}
+    class Client:
+        def __init__(self, timeout, headers): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def get(self, *args, **kwargs): return Response()
+    monkeypatch.setattr("app.services.web_search.courtlistener_provider.httpx.Client", Client)
+    result = CourtListenerSearchProvider().search("acme", 1)[0]
+    assert result.published_at is not None
+    assert result.published_at.date().isoformat() == "2026-05-01"
+    assert result.published_at.tzinfo is not None
 
 def test_tavily_provider_passes_time_range_days(monkeypatch):
     captured = {}
@@ -221,6 +246,23 @@ def test_extractor_accepts_human_readable_published_date(monkeypatch):
     result = extract_signal_from_text("Published May 1, 2026. A lawsuit was filed against Acme.", {"title": "Acme lawsuit", "url": "https://www.reuters.com/legal/acme"})
     assert str(result["published_at"]).startswith("2026-05-01")
     assert result["freshness_status"] == "fresh"
+    assert result["published_at"].tzinfo is not None
+
+def test_extractor_falls_back_to_timezone_aware_metadata_date(monkeypatch):
+    monkeypatch.setattr("app.services.web_discovery.extractor.settings.openai_api_key", "test")
+    monkeypatch.setattr("app.services.web_discovery.extractor.settings.groq_api_key", None)
+    class Response:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"choices": [{"message": {"content": '{"title":"Acme lawsuit filed","parties":["Acme"],"published_at":"unknown","summary":"A lawsuit was filed against Acme.","discovery_pain_summary":"Likely document production and privilege review.","why_decoverai":"DecoverAI can help classify documents, accelerate privilege review, support redaction, and prepare defensible production.","is_litigation_trigger":true}'}}]}
+    class Client:
+        def __init__(self, timeout): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def post(self, *args, **kwargs): return Response()
+    monkeypatch.setattr("app.services.web_discovery.extractor.httpx.Client", Client)
+    result = extract_signal_from_text("A lawsuit was filed against Acme.", {"title": "Acme lawsuit", "url": "https://www.reuters.com/legal/acme", "published_at": datetime(2026, 5, 1)})
+    assert result["published_at"].tzinfo is not None
 
 def test_extractor_uses_groq_when_configured(monkeypatch):
     captured = {}
@@ -289,6 +331,36 @@ def test_convert_discovered_signal_to_opportunity():
     db.commit()
     assert signal.status == "converted"
     assert opp.evidence[0].source_url == "https://example.com/breach"
+
+def test_manual_courtlistener_ingest_preserves_evidence_date(monkeypatch):
+    db = session()
+    db.add(models.ScoringConfig(name="Default", is_active=True))
+    from app import services
+    monkeypatch.setattr(services, "validate_signal_with_gemini", lambda data: {"useful": True, "reason": "test"})
+    class Response:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"results": [{
+                "caseName": "Acme v. Globex",
+                "docket_absolute_url": "/docket/123/acme-v-globex/",
+                "dateFiled": None,
+                "snippet": "Complaint filed in trade secret lawsuit involving documents.",
+                "party": ["Acme", "Globex"],
+                "recap_documents": [
+                    {"absolute_url": "/recap/gov.uscourts/new.pdf", "entry_date_filed": "2026-05-01"},
+                ],
+            }]}
+    class Client:
+        def __init__(self, timeout, headers): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def get(self, *args, **kwargs): return Response()
+    monkeypatch.setattr("app.services.httpx.Client", Client)
+    result = services.ingest_courtlistener(db, "acme", page_size=1)
+    assert result["count"] == 1
+    evidence = db.query(models.SourceEvidence).first()
+    assert evidence.published_at is not None
+    assert evidence.published_at.date().isoformat() == "2026-05-01"
 
 def test_no_dummy_data_loaded_by_default(monkeypatch):
     monkeypatch.setattr("app.services.settings.enable_demo_data", False)
@@ -680,3 +752,28 @@ def test_discovery_run_persists_extracted_published_date(monkeypatch):
     assert signal.published_at is not None
     assert signal.signal_date is not None
     assert signal.freshness_status == "fresh"
+
+def test_discovery_run_preserves_requested_geography(monkeypatch):
+    db = session()
+    captured = {}
+    class Provider:
+        def search(self, *args, **kwargs):
+            return [WebSearchResult(title="Acme lawsuit filed", url="https://www.reuters.com/legal/acme-uk", domain="reuters.com", snippet="Lawsuit filed against Acme.")]
+    monkeypatch.setattr("app.services.web_discovery.runner._search_provider", lambda: Provider())
+    monkeypatch.setattr("app.services.web_discovery.runner._scrapers", lambda: [])
+    def fake_extract(text, metadata):
+        captured["geography"] = metadata["geography"]
+        return score_signal_payload({
+            "title": "Acme lawsuit filed",
+            "source_url": "https://www.reuters.com/legal/acme-uk",
+            "publisher": "Reuters",
+            "parties": ["Acme"],
+            "summary": "Lawsuit filed against Acme.",
+            "discovery_pain_summary": "Likely document production and privilege review.",
+            "why_decoverai": "DecoverAI can help classify documents, accelerate privilege review, support redaction, and prepare defensible production.",
+            "is_litigation_trigger": True,
+        })
+    monkeypatch.setattr("app.services.web_discovery.runner.extract_signal_from_text", fake_extract)
+    run = run_discovery(db, "data_breach", geography="UK", max_results=1, dry_run=True)
+    assert run.geography == "UK"
+    assert captured["geography"] == "UK"

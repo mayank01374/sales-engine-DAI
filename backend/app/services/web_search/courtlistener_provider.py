@@ -2,6 +2,7 @@ from __future__ import annotations
 from urllib.parse import urlparse
 import re
 import httpx
+from datetime import timezone
 from dateutil import parser as date_parser
 from ...config import settings
 from .base import WebSearchProvider, WebSearchResult
@@ -26,18 +27,21 @@ def _parse_date(value: str | None):
     if not value:
         return None
     try:
-        return date_parser.parse(value)
+        dt = date_parser.parse(value)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
     except Exception:
         return None
 
 def _courtlistener_date(row: dict):
     dates = []
-    for key in ["dateFiled", "date_filed", "dateArgued"]:
+    for key in ["dateFiled", "date_filed", "dateArgued", "dateCreated", "date_created"]:
         parsed = _parse_date(row.get(key))
         if parsed:
             dates.append(parsed)
     for doc in row.get("recap_documents") or []:
-        for key in ["entry_date_filed", "dateFiled", "date_filed"]:
+        for key in ["entry_date_filed", "dateFiled", "date_filed", "dateCreated", "date_created"]:
             parsed = _parse_date(doc.get(key))
             if parsed:
                 dates.append(parsed)
