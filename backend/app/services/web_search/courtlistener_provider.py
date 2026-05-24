@@ -30,6 +30,21 @@ def _parse_date(value: str | None):
     except Exception:
         return None
 
+def _courtlistener_date(row: dict):
+    dates = []
+    for key in ["dateFiled", "date_filed", "dateArgued"]:
+        parsed = _parse_date(row.get(key))
+        if parsed:
+            dates.append(parsed)
+    for doc in row.get("recap_documents") or []:
+        for key in ["entry_date_filed", "dateFiled", "date_filed"]:
+            parsed = _parse_date(doc.get(key))
+            if parsed:
+                dates.append(parsed)
+    if not dates:
+        return None
+    return max(dates)
+
 class CourtListenerSearchProvider(WebSearchProvider):
     provider_name = "courtlistener"
 
@@ -67,7 +82,7 @@ class CourtListenerSearchProvider(WebSearchProvider):
                 url=url,
                 domain=domain or "courtlistener.com",
                 snippet=snippet or "Matched CourtListener legal search result.",
-                published_at=_parse_date(row.get("dateFiled") or row.get("date_filed") or row.get("dateArgued")),
+                published_at=_courtlistener_date(row),
                 score=0.92,
                 publisher="CourtListener",
             ))

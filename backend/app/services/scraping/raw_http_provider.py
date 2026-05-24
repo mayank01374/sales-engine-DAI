@@ -17,6 +17,7 @@ class RawHttpScraperProvider(ScraperProvider):
         headers = {"User-Agent": settings.scraping_user_agent, "Accept": "text/html,application/xhtml+xml"}
         with httpx.Client(timeout=15, follow_redirects=True, headers=headers) as client:
             response = client.get(url)
+        response.raise_for_status()
         content_type = response.headers.get("content-type", "")
         if "html" not in content_type and "text" not in content_type:
             raise ValueError(f"Unsupported content type: {content_type}")

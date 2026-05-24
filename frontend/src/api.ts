@@ -6,7 +6,9 @@ async function req<T>(path:string, opts:RequestInit={}): Promise<T> {
     let msg = res.statusText;
     try {
       const j = await res.json();
-      if (Array.isArray(j.detail) && j.detail[0]?.msg) {
+      if (typeof j.detail === 'string') {
+        msg = j.detail;
+      } else if (Array.isArray(j.detail) && j.detail[0]?.msg) {
         msg = j.detail[0].msg;
       } else {
         msg = j.error?.message || msg;

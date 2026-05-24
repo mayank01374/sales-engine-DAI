@@ -108,8 +108,8 @@ class Opportunity(Base):
         secondary=opportunity_personas,
         back_populates="opportunities",
     )
-    law_firms = association_proxy("law_firm_entities", "name", creator=lambda name: LawFirm(name=name))
-    recommended_personas = association_proxy("persona_entities", "name", creator=lambda name: Persona(name=name))
+    law_firms = association_proxy("law_firm_entities", "name")
+    recommended_personas = association_proxy("persona_entities", "name")
     enriched_accounts = relationship("EnrichedAccount", cascade="all,delete", back_populates="opportunity")
     research_tasks = relationship("ResearchTask", cascade="all,delete", back_populates="opportunity")
     activities = relationship("OpportunityActivity", cascade="all,delete", back_populates="opportunity")

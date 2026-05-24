@@ -4,6 +4,7 @@ from html.parser import HTMLParser
 import csv, io, json, re
 import httpx
 from urllib.parse import urljoin, urlparse
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 from .. import models
 from ..config import settings
@@ -99,6 +100,29 @@ def normalize_key(case_name: str, parties: list[str], trigger_type: str):
 
 def log_activity(db: Session, opportunity_id: int, activity_type: str, message: str, actor_name="System", metadata=None):
     db.add(models.OpportunityActivity(opportunity_id=opportunity_id, activity_type=activity_type, message=message, actor_name=actor_name, metadata_json=metadata or {}))
+
+def _get_or_create_named_entities(db: Session, model, names: list[str]):
+    entities = []
+    seen = set()
+    for name in names:
+        clean = str(name).strip()
+        key = clean.lower()
+        if not clean or key in seen:
+            continue
+        seen.add(key)
+        entity = db.query(model).filter(func.lower(model.name) == key).first()
+        if not entity:
+            entity = model(name=clean)
+            db.add(entity)
+            db.flush()
+        entities.append(entity)
+    return entities
+
+def _get_or_create_law_firms(db: Session, names: list[str]):
+    return _get_or_create_named_entities(db, models.LawFirm, names)
+
+def _get_or_create_personas(db: Session, names: list[str]):
+    return _get_or_create_named_entities(db, models.Persona, names)
 
 def active_config(db: Session) -> models.ScoringConfig:
     cfg = db.query(models.ScoringConfig).filter_by(is_active=True).first()
@@ -224,7 +248,8 @@ def create_or_update_opportunity(db: Session, data: dict) -> models.Opportunity:
     opp.trigger_category=data.get("trigger_category") or opp.trigger_category or opp.trigger_type
     opp.parties=parties or opp.parties or []
     opp.party_roles=data.get("party_roles") or opp.party_roles or {}
-    opp.law_firms=law_firms or list(opp.law_firms or [])
+    if law_firms:
+        opp.law_firm_entities = _get_or_create_law_firms(db, law_firms)
     opp.court_or_regulator=data.get("court_or_regulator") or opp.court_or_regulator or ""
     opp.jurisdiction=data.get("jurisdiction") or opp.jurisdiction or ""
     opp.summary=data.get("summary") or opp.summary or f"Potential {opp.case_type} signal involving {', '.join(opp.parties[:3])}."
@@ -232,7 +257,9 @@ def create_or_update_opportunity(db: Session, data: dict) -> models.Opportunity:
     opp.discovery_pain_summary=data.get("discovery_pain_summary") or opp.discovery_pain_summary or ""
     opp.why_now=data.get("why_now") or opp.why_now or ""
     opp.why_decoverai=data.get("why_decoverai") or opp.why_decoverai or ""
-    opp.recommended_personas=data.get("recommended_personas") or list(opp.recommended_personas or [])
+    personas = split_list(data.get("recommended_personas") or [])
+    if personas:
+        opp.persona_entities = _get_or_create_personas(db, personas)
     opp.sales_angle_one_liner=data.get("sales_angle_one_liner") or opp.sales_angle_one_liner or ""
     opp.email_subject=data.get("email_subject") or opp.email_subject or ""
     opp.email_body=data.get("email_body") or opp.email_body or ""

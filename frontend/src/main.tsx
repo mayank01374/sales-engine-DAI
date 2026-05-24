@@ -34,10 +34,10 @@ const salesStatuses = [
   "rejected",
 ];
 
+type Page = "daily" | "runs" | "opportunities" | "settings";
+
 function App() {
-  const [page, setPage] = useState<
-    "daily" | "runs" | "opportunities" | "settings"
-  >("daily");
+  const [page, setPage] = useState<Page>("daily");
   return (
     <div className="app">
       <aside className="sidebar">
@@ -77,7 +77,7 @@ function App() {
         </button>
       </aside>
       <main>
-        {page === "daily" && <DailyTriggers />}
+        {page === "daily" && <DailyTriggers onNavigate={setPage} />}
         {page === "runs" && <DiscoveryRuns />}
         {page === "opportunities" && <Opportunities />}
         {page === "settings" && <Settings />}
@@ -86,7 +86,7 @@ function App() {
   );
 }
 
-function DailyTriggers() {
+function DailyTriggers({ onNavigate }: { onNavigate: (page: Page) => void }) {
   const [items, setItems] = useState<DiscoveredSignal[]>([]);
   const [selected, setSelected] = useState<DiscoveredSignal | null>(null);
   const [loading, setLoading] = useState(false);
@@ -222,9 +222,9 @@ function DailyTriggers() {
             and trusted legal-news sources.
           </p>
           <div className="actions">
-            <button>Run Discovery</button>
-            <button>View Failed Signals</button>
-            <button>Open Settings</button>
+            <button onClick={() => onNavigate("runs")}>Run Discovery</button>
+            <button onClick={() => onNavigate("runs")}>View Failed Signals</button>
+            <button onClick={() => onNavigate("settings")}>Open Settings</button>
           </div>
           {summary && (
             <div className="summaryStats">

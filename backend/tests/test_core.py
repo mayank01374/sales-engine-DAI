@@ -86,6 +86,30 @@ def test_courtlistener_parses_date_only_date_filed(monkeypatch):
     assert result.published_at is not None
     assert result.published_at.date().isoformat() == "2024-05-24"
 
+def test_courtlistener_parses_nested_recap_entry_date(monkeypatch):
+    class Response:
+        def raise_for_status(self): pass
+        def json(self):
+            return {"results": [{
+                "caseName": "Acme v. Globex",
+                "docket_absolute_url": "/docket/123/acme-v-globex/",
+                "dateFiled": None,
+                "snippet": "Complaint filed.",
+                "recap_documents": [
+                    {"absolute_url": "/recap/gov.uscourts/old.pdf", "entry_date_filed": "2024-01-01"},
+                    {"absolute_url": "/recap/gov.uscourts/new.pdf", "entry_date_filed": "2026-05-01"},
+                ],
+            }]}
+    class Client:
+        def __init__(self, timeout, headers): pass
+        def __enter__(self): return self
+        def __exit__(self, *args): pass
+        def get(self, *args, **kwargs): return Response()
+    monkeypatch.setattr("app.services.web_search.courtlistener_provider.httpx.Client", Client)
+    result = CourtListenerSearchProvider().search("acme", 1)[0]
+    assert result.published_at is not None
+    assert result.published_at.date().isoformat() == "2026-05-01"
+
 def test_tavily_provider_passes_time_range_days(monkeypatch):
     captured = {}
     class Response:
@@ -460,9 +484,12 @@ def test_30_day_old_signal_can_pass_gate():
     signal = models.DiscoveredSignal(title="A v. B lawsuit filed", source_url="https://www.reuters.com/legal/a-b", parties=["A", "B"], is_litigation_trigger=True, confidence_score=90, source_quality_score=90, discovery_pain_score=90, dcover_fit_score=90, sales_actionability_score=90, final_trigger_score=90, freshness_status="fresh", signal_age_days=30, discovery_pain_summary="Likely privilege review and production burden.", why_decoverai="DecoverAI can help classify documents, identify responsive materials, accelerate privilege review, support redaction, create privilege logs, and prepare defensible production with audit trails.")
     assert quality_gate(signal, db)[0]
 
-def test_unknown_date_signal_can_pass_gate():
+def test_unknown_date_signal_follows_setting():
     db = session()
     signal = models.DiscoveredSignal(title="A v. B lawsuit filed", source_url="https://www.reuters.com/legal/a-b", parties=["A", "B"], is_litigation_trigger=True, confidence_score=90, source_quality_score=90, discovery_pain_score=90, dcover_fit_score=90, sales_actionability_score=90, final_trigger_score=90, freshness_status="unknown", discovery_pain_summary="Likely privilege review and production burden.", why_decoverai="DecoverAI can help classify documents, identify responsive materials, accelerate privilege review, support redaction, create privilege logs, and prepare defensible production with audit trails.")
+    assert not quality_gate(signal, db)[0]
+    cfg = active_config(db)
+    cfg.allow_unknown_signal_date = True
     assert quality_gate(signal, db)[0]
 
 def test_sales_action_plan_is_generated_for_passed_signal():
@@ -587,7 +614,7 @@ def test_generic_decoverai_fit_fails_gate():
     signal = models.DiscoveredSignal(title="A v. B lawsuit filed", source_url="https://www.sec.gov/x", parties=["A", "B"], is_litigation_trigger=True, confidence_score=90, source_quality_score=90, discovery_pain_score=90, dcover_fit_score=50, sales_actionability_score=90, final_trigger_score=90, freshness_status="fresh", signal_age_days=10, discovery_pain_summary="Privilege review and production burden likely.", why_decoverai="DecoverAI can help with legal documents.")
     passed, reason = quality_gate(signal, db)
     assert not passed
-    assert "dcover_fit_score below 55" in reason
+    assert "dcover_fit_score below 60" in reason
 
 def test_settings_endpoint_defaults_and_update():
     db = session()

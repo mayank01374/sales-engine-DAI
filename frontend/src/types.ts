@@ -1,7 +1,9 @@
 export type Status = 'New'|'Needs More Research'|'Qualified'|'Contacted'|'Rejected'|'Won'|'Lost';
+export type LawFirm = {id:number; name:string};
+export type Persona = {id:number; name:string};
 export type Opportunity = {
-  id:number; case_name:string; trigger_type:string; case_type:string; status:Status; parties:string[]; law_firms:string[]; summary:string; notes:string;
-  matter_type:string; trigger_category:string; party_roles:Record<string, any>; court_or_regulator:string; jurisdiction:string; factual_basis:string; discovery_pain_summary:string; why_now:string; why_decoverai:string; recommended_personas:string[]; sales_angle_one_liner:string; email_subject:string; email_body:string; linkedin_message:string; call_opener:string;
+  id:number; case_name:string; trigger_type:string; case_type:string; status:Status; parties:string[]; law_firms:LawFirm[]; summary:string; notes:string;
+  matter_type:string; trigger_category:string; party_roles:Record<string, any>; court_or_regulator:string; jurisdiction:string; factual_basis:string; discovery_pain_summary:string; why_now:string; why_decoverai:string; recommended_personas:Persona[]; sales_angle_one_liner:string; email_subject:string; email_body:string; linkedin_message:string; call_opener:string;
   confidence_score:number; source_quality_score:number; discovery_pain_score:number; dcover_fit_score:number; sales_actionability_score:number; final_trigger_score:number; extraction_warnings:string[]; missing_fields:string[];
   score:number; discovery_burden_score:number; urgency_score:number; decoverAI_fit_score:number; company_size_score:number; law_firm_signal_score:number; freshness_score:number; case_type_score:number;
   scoring_breakdown:Record<string, any>; recommended_persona:string; pitch_angle:string; generated_email:string; enrichment_status:string; created_at:string; updated_at:string; evidence: Evidence[];

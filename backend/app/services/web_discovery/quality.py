@@ -69,11 +69,29 @@ def bounded(value, default=0):
 def _domain(url: str) -> str:
     return urlparse(url or "").netloc.lower().replace("www.", "")
 
-def classify_source(url: str, publisher: str = "", title: str = "", text: str = "") -> dict:
+def _configured_domains(value) -> set[str]:
+    if not value:
+        return set()
+    if isinstance(value, str):
+        parts = value.replace("\n", ",").replace(";", ",").split(",")
+    else:
+        parts = value
+    return {str(part).strip().lower().replace("www.", "") for part in parts if str(part).strip()}
+
+def _matches_configured_domain(domain: str, configured: set[str]) -> bool:
+    return any(domain == item or domain.endswith(f".{item}") for item in configured)
+
+def classify_source(url: str, publisher: str = "", title: str = "", text: str = "", source_allowlist=None, source_blocklist=None) -> dict:
     domain = _domain(url)
     haystack = " ".join([url or "", publisher or "", title or "", text or ""]).lower()
     if not domain:
         return {"source_tier": "blocked", "source_reason": "Source has no domain."}
+    blocked_domains = _configured_domains(source_blocklist)
+    trusted_domains = _configured_domains(source_allowlist)
+    if _matches_configured_domain(domain, blocked_domains):
+        return {"source_tier": "blocked", "source_reason": "Source domain is blocked in settings."}
+    if _matches_configured_domain(domain, trusted_domains):
+        return {"source_tier": "tier_2_legal_news", "source_reason": "Source domain is trusted in settings."}
     if any(hint in domain for hint in LOW_QUALITY_HINTS):
         return {"source_tier": "low_quality", "source_reason": "Domain looks like a generic blog, mirror, or SEO source."}
     if any(domain.endswith(d) for d in TIER_1_COURT) or "recap" in haystack:
@@ -316,7 +334,14 @@ def score_signal_payload(data: dict) -> dict:
     text = " ".join(str(data.get(k) or "") for k in ["title", "matter_type", "trigger_category", "summary", "factual_basis", "discovery_pain_summary", "why_now", "why_decoverai"])
     parties = data.get("parties") or []
     law_firms = data.get("law_firms") or []
-    source_info = classify_source(data.get("source_url") or "", data.get("publisher") or "", data.get("title") or "", text)
+    source_info = classify_source(
+        data.get("source_url") or "",
+        data.get("publisher") or "",
+        data.get("title") or "",
+        text,
+        data.get("source_allowlist"),
+        data.get("source_blocklist"),
+    )
     data = {**data, **source_info}
     regulator = RegulatorActionabilityClassifier.classify(data)
     source_quality = safe_score(data.get("source_quality_score"), source_quality_for_tier(source_info["source_tier"], regulator["actionable"]))
@@ -398,9 +423,9 @@ def get_thresholds(db: Session | None = None) -> dict:
         "final_trigger_score": (cfg.final_trigger_threshold if cfg else settings.daily_trigger_threshold),
         "confidence_score": (cfg.min_confidence_score if cfg else settings.min_confidence_score),
         "source_quality_score": (cfg.min_source_quality_score if cfg else settings.min_source_quality_score),
-        "discovery_pain_score": min(safe_score(min_discovery_pain, 55), 55),
-        "dcover_fit_score": min(safe_score(min_dcover_fit, 55), 55),
-        "sales_actionability_score": min(safe_score(min_sales_actionability, 20), 20),
+        "discovery_pain_score": safe_score(min_discovery_pain, 55),
+        "dcover_fit_score": safe_score(min_dcover_fit, 55),
+        "sales_actionability_score": safe_score(min_sales_actionability, 20),
         "max_daily_triggers": (cfg.max_daily_triggers if cfg else 50),
         "max_signal_age_days": (cfg.max_signal_age_days if cfg else settings.max_signal_age_days),
         "allow_unknown_signal_date": (cfg.allow_unknown_signal_date if cfg else False),
@@ -414,6 +439,8 @@ def quality_gate(signal, db: Session | None = None) -> tuple[bool, str]:
     freshness_status = getattr(signal, "freshness_status", "unknown") or "unknown"
     if freshness_status == "stale":
         failures.append("stale_signal")
+    if freshness_status == "unknown" and not thresholds["allow_unknown_signal_date"]:
+        failures.append("unknown_signal_date")
     if getattr(signal, "source_tier", "") == "blocked":
         failures.append("blocked_source")
     for field, threshold in thresholds.items():
@@ -443,6 +470,11 @@ def quality_gate(signal, db: Session | None = None) -> tuple[bool, str]:
 
 def apply_quality_to_signal(signal, db: Session | None = None):
     payload = {column.name: getattr(signal, column.name, None) for column in signal.__table__.columns}
+    if db:
+        cfg = db.query(models.ScoringConfig).filter_by(is_active=True).first()
+        if cfg:
+            payload["source_allowlist"] = cfg.source_allowlist
+            payload["source_blocklist"] = cfg.source_blocklist
     scored = score_signal_payload(payload)
     for key, value in scored.items():
         if hasattr(signal, key):

@@ -79,7 +79,7 @@ def daily_triggers(
     domain_counts = {}
     category_counts = {}
     party_counts = {}
-    items = []
+    filtered_items = []
     tier_weight = {
         "tier_1_court_docket": 0,
         "tier_1_litigation_alert": 1,
@@ -106,14 +106,13 @@ def daily_triggers(
             continue
         if party_counts.get(party_key, 0) >= (cfg.max_per_same_party or 2):
             continue
-        items.append(signal)
+        filtered_items.append(signal)
         domain_counts[domain] = domain_counts.get(domain, 0) + 1
         category_counts[category] = category_counts.get(category, 0) + 1
         party_counts[party_key] = party_counts.get(party_key, 0) + 1
-        if len(items) >= page_size:
-            break
-    total = len(candidates)
-    items = items[(page - 1) * page_size : page * page_size]
+    total = len(filtered_items)
+    start = (page - 1) * page_size
+    items = filtered_items[start : start + page_size]
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
